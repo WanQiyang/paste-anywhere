@@ -76,6 +76,103 @@
 
 理由：本项目 UI 较少，核心工作在全局快捷键、剪贴板、系统分享及平台生命周期集成；共用 UI 的收益有限，原生实现更直接。HarmonyOS NEXT 不按 Android 客户端设计。
 
+## 开发环境版本基线
+
+以下版本根据本机安装与命令检查结果固定为初始开发基线。后续开发和 CI 优先使用同一版本；升级时应显式更新本节及对应工程配置，不随意跟随最新版。
+
+| 工具 | 固定版本 / 配置 | 验证情况 |
+| --- | --- | --- |
+| 开发主机 | Windows x64 | 已确认 |
+| Go SDK | `1.27.4`，windows/amd64 | `go version` 已验证 |
+| .NET SDK | `10.0.404`，x64 | `dotnet --info` 已验证 |
+| Windows 目标框架 | `net10.0-windows`，WPF | WPF 模板可用，尚未创建工程 |
+| DevEco Studio | `26.0.0.865` | 安装目录 `product-info.json` 已确认 |
+| DevEco 构建号 | `261.23567.138.36.2600865` | 安装元数据已确认 |
+| HarmonyOS SDK | `26.0.0.105`，HarmonyOS `26.0.0`，API `26`，Release | `sdk/default/sdk-pkg.json` 已确认 |
+| Node.js | DevEco 内置 `24.14.1` | 运行版本命令已验证 |
+| Hvigor / OHPM / JBR | 使用上述 DevEco Studio 随附版本 | 目录存在，具体版本号与运行能力尚未独立验证 |
+
+环境约定：
+
+- DevEco 安装路径为 `C:\Program Files\Huawei\DevEco Studio`，SDK 位于其 `sdk\default` 下；这是本机路径，不应写死到可移植工程配置中。
+- 无需安装 Visual Studio，Windows 客户端可使用 .NET SDK 命令行构建；无需另装 Node.js、JDK 或 Command Line Tools，优先使用 DevEco 配套工具。
+- HarmonyOS API 26 是当前已安装 SDK 的版本，**不等于已确定客户端最低支持 API**。目标设备兼容范围和工程兼容 API 配置需结合真机系统版本确认。
+- 真机连接、签名、完整工程构建尚未验证；工具安装完成不代表这些检查已经通过。
+- 开始实现时，根目录添加 `global.json` 固定 .NET SDK `10.0.404`（禁止自动滚动版本）；Go 模块和构建环境固定使用 `1.27.4`，不只依靠 `go.mod` 的最低版本声明。
+- HarmonyOS 工程创建后，记录实际使用的 Hvigor / OHPM 版本，固定构建插件及依赖锁文件；目前不猜测其版本号。
+- iOS 工具链、SQLite 驱动及其他依赖版本在对应实现启动时确定。
+
+## 仓库目录规划
+
+采用单仓库（monorepo），服务端与各平台客户端独立构建。以下为目标轮廓，开发时按需建立目录，不预先创建空工程；iOS 在启动支持时再创建。
+
+```text
+paste-anywhere/
+├── AGENTS.md
+├── PROJECT_PLAN.md
+├── README.md
+├── .gitignore
+├── docs/
+│   ├── protocol.md             # 同步语义、去重、顺序、设备生命周期
+│   ├── openapi.yaml            # HTTP API 定义
+│   ├── websocket.md            # 实时通知格式
+│   └── deployment.md           # VPS 部署及 CLI 使用说明
+├── server/                     # 独立 Go 模块
+│   ├── go.mod
+│   ├── go.sum
+│   ├── cmd/paste-anywhere/
+│   │   └── main.go             # 服务启动与管理 CLI 入口
+│   ├── internal/
+│   │   ├── cli/                # serve、用户和设备管理命令
+│   │   ├── config/
+│   │   ├── auth/               # 邀请码、设备凭证
+│   │   ├── clipboard/          # 上传、当前条目、历史、转发
+│   │   ├── realtime/           # WebSocket 连接和通知
+│   │   ├── httpapi/            # HTTP 路由及请求处理
+│   │   └── storage/            # SQLite、附件存储及清理
+│   └── migrations/             # 数据库结构变更
+├── clients/
+│   ├── windows/
+│   │   ├── PasteAnywhere.sln
+│   │   └── PasteAnywhere/
+│   │       ├── PasteAnywhere.csproj
+│   │       ├── Views/          # 当前内容、用户列表、历史、设置
+│   │       ├── ViewModels/
+│   │       ├── Models/
+│   │       ├── Networking/     # API 和 WebSocket
+│   │       ├── Services/       # 上传、接收、去重与下载协调
+│   │       └── Platform/       # 全局快捷键、剪贴板、托盘
+│   ├── harmony/
+│   │   ├── AppScope/
+│   │   ├── entry/src/main/
+│   │   │   ├── ets/
+│   │   │   │   ├── entryability/
+│   │   │   │   ├── pages/
+│   │   │   │   ├── models/
+│   │   │   │   ├── networking/
+│   │   │   │   ├── services/
+│   │   │   │   └── platform/   # 系统分享、剪贴板适配
+│   │   │   ├── resources/
+│   │   │   └── module.json5
+│   │   └── ...                 # DevEco Studio 工程配置
+│   └── ios/                    # 后续可选
+│       ├── PasteAnywhere.xcodeproj/
+│       ├── PasteAnywhere/      # 主应用
+│       ├── ShareExtension/     # 接收其他 App 的分享
+│       └── Shared/             # 主应用与扩展共用模型、网络等
+├── deploy/
+│   ├── Dockerfile
+│   ├── compose.yaml
+│   └── config.example.yaml
+└── scripts/                    # 按需增加构建、打包脚本
+```
+
+- 共享协议与数据模型定义，各客户端使用原生语言实现，不强行共享跨语言业务代码。
+- 服务端与管理 CLI 共用一个可执行程序，具体命令语法后续设计。
+- 平台 API 与业务流程分开封装，便于独立验证快捷键、剪贴板和系统分享行为。
+- Windows 初期使用一个 WPF 项目，服务端使用一个 Go 模块，按实际复杂度再拆分。
+- 数据库、上传图片、设备凭证、签名材料与构建产物不提交到仓库。
+
 ## 后续需验证或细化
 
 - 优先验证 HarmonyOS NEXT 接收系统分享、上传以及图片转发到其他 App 的真实能力和生命周期限制。

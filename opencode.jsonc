@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permissions": [
+    {
+      "action": "external_directory",
+      "resource": "C:/Program Files/Huawei/DevEco Studio/*",
+      "effect": "allow"
+    },
+    {
+      "action": "read",
+      "resource": "C:/Program Files/Huawei/DevEco Studio/*",
+      "effect": "allow"
+    }
+  ]
+}

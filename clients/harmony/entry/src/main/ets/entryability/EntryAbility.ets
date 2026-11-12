@@ -2,7 +2,7 @@ import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { ClipboardProbe } from '../platform/ClipboardProbe';
 import { RemoteClipboard } from '../services/RemoteClipboard';
-import { RemoteUser } from '../networking/RemoteTypes';
+import { RemoteUser, RemoteEntry } from '../networking/RemoteTypes';
 
 export default class EntryAbility extends UIAbility {
   private foregroundActive: boolean = false;
@@ -10,11 +10,16 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('probeText', '');
     AppStorage.setOrCreate('probeImage', '');
     AppStorage.setOrCreate('probeType', 'general.plain-text');
-    AppStorage.setOrCreate('probeStatus', '请从其他 App 分享文本或单张图片到本应用。');
+    AppStorage.setOrCreate('probeStatus', '');
     AppStorage.setOrCreate('remoteId', '');
     AppStorage.setOrCreate('serverAddress', '');
-    AppStorage.setOrCreate('deviceName', 'HarmonyOS');
+    AppStorage.setOrCreate('deviceName', '');
     AppStorage.setOrCreate('accountName', '');
+    AppStorage.setOrCreate('accountId', '');
+    AppStorage.setOrCreate('networkConnected', false);
+    AppStorage.setOrCreate('onlineDeviceCount', -1);
+    AppStorage.setOrCreate('pendingUpload', false);
+    AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
     AppStorage.setOrCreate('networkStatus', '未连接');
     AppStorage.setOrCreate<RemoteUser[]>('remoteUsers', []);
     if (want.action === 'ohos.want.action.sendData') { RemoteClipboard.incoming(); }

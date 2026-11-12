@@ -31,7 +31,7 @@ func TestCrossUserRoundTrip(t *testing.T) {
 			b, inviteB, _ := s.CreateUser("B")
 			deviceA, _, tokenA, _ := s.Connect(inviteA, "phone")
 			deviceB, _, tokenB, _ := s.Connect(inviteB, "desktop")
-			_, _, tokenB2, _ := s.Connect(inviteB, "second desktop")
+			_, _, tokenB2, _ := s.Connect(inviteB, "secondDesktop")
 			old, err := s.CreateEntry(deviceB, b.ID, "existing recipient content")
 			if err != nil {
 				t.Fatal(err)
@@ -68,6 +68,10 @@ func TestCrossUserRoundTrip(t *testing.T) {
 				t.Helper()
 				req, _ := http.NewRequest(http.MethodPost, server.URL+path, bytes.NewReader(body))
 				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Content-Type", "application/json")
+				if path == "/v1/entries" && kind == "image" {
+					req.Header.Set("Content-Type", "image/png")
+				}
 				response, err := http.DefaultClient.Do(req)
 				if err != nil {
 					t.Fatal(err)
@@ -92,10 +96,10 @@ func TestCrossUserRoundTrip(t *testing.T) {
 				if err = png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 					t.Fatal(err)
 				}
-				path, body = "/v1/images", pngData.Bytes()
+				body = pngData.Bytes()
 			}
 			original := post(tokenA, path, body)
-			toB := post(tokenA, "/v1/entries/"+original.ID+"/send", []byte(fmt.Sprintf(`{"userId":%q}`, b.ID)))
+			toB := post(tokenA, "/v1/transfers", []byte(fmt.Sprintf(`{"entryId":%q,"userId":%q}`, original.ID, b.ID)))
 			// These must be the first notifications: A's ordinary upload must not leak to B.
 			read(cb, toB.ID, deviceA.ID)
 			read(cb2, toB.ID, deviceA.ID)
@@ -107,7 +111,7 @@ func TestCrossUserRoundTrip(t *testing.T) {
 			if err != nil || len(history) != 2 || history[1].ID != old.ID {
 				t.Fatal("recipient history was lost", err)
 			}
-			back := post(tokenB, "/v1/entries/"+toB.ID+"/send", []byte(fmt.Sprintf(`{"userId":%q}`, a.ID)))
+			back := post(tokenB, "/v1/transfers", []byte(fmt.Sprintf(`{"entryId":%q,"userId":%q}`, toB.ID, a.ID)))
 			// A must not receive its own original upload, nor its send to B, before this reply.
 			read(ca, back.ID, deviceB.ID)
 			if back.ID == original.ID || back.ID == toB.ID || back.SenderID != b.ID || back.Kind != kind {

@@ -12,6 +12,7 @@ COPY --from=build /out/paste-anywhere /paste-anywhere
 COPY --from=build --chown=65532:65532 /out/data/ /data/
 USER 65532:65532
 WORKDIR /data
+ENV PASTE_ANYWHERE_DB=/data/clipboard.db
 EXPOSE 8080
 ENTRYPOINT ["/paste-anywhere"]
-CMD ["serve", "-db", "/data/clipboard.db", "-listen", "0.0.0.0:8080"]
+CMD ["serve", "--listen", "0.0.0.0:8080"]

@@ -4,7 +4,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$stage = Join-Path $root ".local/package-server-$([guid]::NewGuid().ToString('N'))"
+$stage = Join-Path $root "build/.staging/server-$([guid]::NewGuid().ToString('N'))"
+$binary = Join-Path $root "build/server/linux-$Architecture/paste-anywhere"
 $dist = Join-Path $root 'dist'
 $name = "paste-anywhere-$Version-linux-$Architecture"
 $folder = Join-Path $stage $name
@@ -18,11 +19,17 @@ try {
     $env:GOTOOLCHAIN = 'local'
     if ((go env GOVERSION) -ne 'go1.27.4') { throw 'Go 1.27.4 is required' }
     $env:GOOS = 'linux'; $env:GOARCH = $Architecture; $env:CGO_ENABLED = '0'
-    go build -trimpath -ldflags '-s -w' -o (Join-Path $folder 'paste-anywhere') ./cmd/paste-anywhere
+    go build -trimpath -ldflags '-s -w' -o $binary ./cmd/paste-anywhere
     if ($LASTEXITCODE -ne 0) { throw 'Linux server build failed' }
-    Copy-Item (Join-Path $root 'deploy/paste-anywhere.service') $folder
-    Copy-Item (Join-Path $root 'deploy/Caddyfile.native.example') $folder
-    Copy-Item (Join-Path $root 'docs/deployment-native.md') (Join-Path $folder 'README.md')
+    Copy-Item $binary (Join-Path $folder 'paste-anywhere')
+    $deploy = Join-Path $folder 'deploy'
+    New-Item -ItemType Directory -Path $deploy, (Join-Path $folder '.container-data') | Out-Null
+    New-Item -ItemType File -Path (Join-Path $folder '.container-data/.keep') | Out-Null
+    Copy-Item (Join-Path $root 'deploy/Dockerfile.binary') (Join-Path $deploy 'Dockerfile')
+    foreach ($file in @('compose.yaml', 'Caddyfile', '.env.example')) {
+        Copy-Item (Join-Path $root "deploy/$file") $deploy
+    }
+    Copy-Item (Join-Path $root 'docs/deployment.md') (Join-Path $folder 'README.md')
     $archive = Join-Path $dist "$name.tar.gz"
     tar -czf $archive -C $stage $name
     if ($LASTEXITCODE -ne 0) { throw 'Server archive failed' }

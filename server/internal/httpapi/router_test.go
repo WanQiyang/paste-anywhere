@@ -23,7 +23,7 @@ func TestNativeAndBrowserWebSocketOrigins(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	_, invite, err := s.CreateUser("origin-test")
+	_, invite, err := s.CreateUser("originTest")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +90,7 @@ func TestIsolationDeliveryAndReconnect(t *testing.T) {
 		t.Helper()
 		r, _ := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
 		resp, e := http.DefaultClient.Do(r)
 		if e != nil {
 			t.Fatal(e)
@@ -141,13 +142,13 @@ func TestIsolationDeliveryAndReconnect(t *testing.T) {
 		t.Fatalf("unexpected notification: %+v", notice)
 	}
 	request("GET", "/v1/entries/"+entry.ID, otherToken, "", 404)
-	if string(request("GET", "/v1/clipboard", otherToken, "", 200)) != "null" {
+	if string(request("GET", "/v1/entries?limit=1", otherToken, "", 200)) != "[]" {
 		t.Fatal("user isolation broken")
 	}
 	request("GET", "/v1/users", "", "", 401)
 	request("POST", "/v1/entries", token1, `{"text":"`+strings.Repeat("x", 1025)+`"}`, 400)
 	var sent storage.Entry
-	_ = json.Unmarshal(request("POST", "/v1/entries/"+entry.ID+"/send", token1, fmt.Sprintf(`{"userId":%q}`, u2.ID), 201), &sent)
+	_ = json.Unmarshal(request("POST", "/v1/transfers", token1, fmt.Sprintf(`{"entryId":%q,"userId":%q}`, entry.ID, u2.ID), 201), &sent)
 	if sent.ID == entry.ID || sent.UserID != u2.ID || sent.SenderID != u1.ID {
 		t.Fatal("forward must create a new recipient entry")
 	}
@@ -173,11 +174,11 @@ func TestIsolationDeliveryAndReconnect(t *testing.T) {
 	request("POST", "/v1/entries", token1, `{"text":"second"}`, 201)
 	request("POST", "/v1/entries", token1, `{"text":"third"}`, 201)
 	request("GET", "/v1/entries/"+entry.ID, token1, "", 404)
-	if _, err = s.ResetInvite(u1.ID); err != nil {
+	if err = s.DeleteUserByName(u1.Name); err != nil {
 		t.Fatal(err)
 	}
 	request("GET", "/v1/users", token1, "", 401)
-	if _, _, _, err = s.Connect(i1, "old invite"); err == nil {
+	if _, _, _, err = s.Connect(i1, "oldInvite"); err == nil {
 		t.Fatal("old invite accepted")
 	}
 }

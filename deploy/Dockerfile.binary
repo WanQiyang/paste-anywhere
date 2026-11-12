@@ -1,0 +1,10 @@
+# Runtime-only image for the precompiled Linux release package.
+FROM scratch
+COPY --chmod=755 paste-anywhere /paste-anywhere
+COPY --chown=65532:65532 .container-data/ /data/
+USER 65532:65532
+WORKDIR /data
+ENV PASTE_ANYWHERE_DB=/data/clipboard.db
+EXPOSE 8080
+ENTRYPOINT ["/paste-anywhere"]
+CMD ["serve", "--listen", "0.0.0.0:8080"]

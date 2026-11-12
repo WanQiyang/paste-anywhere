@@ -1,9 +1,9 @@
 param([ValidateRange(1, 65535)][int]$Port = 18080)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exe = Join-Path $root '.local/paste-anywhere.exe'
-$db = Join-Path $root '.local/dev.db'
-$accountFile = Join-Path $root '.local/dev-account.json'
+$exe = Join-Path $root 'build/server/windows-amd64/paste-anywhere.exe'
+$db = Join-Path $root 'data/local/dev.db'
+$accountFile = Join-Path $root 'data/local/dev-account.json'
 if (!(Test-Path $exe)) { throw 'Run scripts/check-server.ps1 first' }
 $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object {
     $_.LocalPort -eq $Port -and $_.LocalAddress -in @('127.0.0.1', '0.0.0.0', '::')
@@ -28,9 +28,13 @@ if ($listeners.Count -gt 0) {
     throw "Port $Port is occupied by another process (PID $ownerId). Choose -Port <free-port> or stop that process first."
 }
 if (!(Test-Path $accountFile)) {
-    $account = & $exe user-create -db $db -name ribo
+    $account = & $exe user create ribo --db $db
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create local development account' }
     $account | Set-Content -Path $accountFile -Encoding utf8
+}
+$savedAccount = Get-Content $accountFile -Raw | ConvertFrom-Json
+if ($savedAccount.invite.Length -ne 8) {
+    throw 'Invalid development account configuration: an 8-character pairing code is required.'
 }
 Write-Host "Local server: http://127.0.0.1:$Port"
 Write-Host "Development invite: $accountFile (same invite for both devices)"

@@ -5,10 +5,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
+    environment:
+      PASTE_ANYWHERE_DB: /data/clipboard.db
     command:
       - serve
-      - -db
-      - /data/clipboard.db
       - -listen
       - 0.0.0.0:8080
       - -history

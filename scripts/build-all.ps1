@@ -1,0 +1,27 @@
+param(
+    [string]$DevEcoHome = $env:DEVECO_HOME,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0'
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+Push-Location $root
+try {
+    & "$PSScriptRoot/clean-build.ps1" -IncludeOutputs
+    & "$PSScriptRoot/check-server.ps1"
+    dotnet build clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -p:CopyRetryCount=0
+    if ($LASTEXITCODE -ne 0) { throw 'Windows client build failed' }
+    & "$PSScriptRoot/package-server.ps1" -Version $Version
+    & "$PSScriptRoot/package-windows.ps1" -Version $Version
+    & "$PSScriptRoot/package-harmony.ps1" -DevEcoHome $DevEcoHome -BuildMode release
+    foreach ($checksum in Get-ChildItem dist -Filter '*.sha256') {
+        $artifact = $checksum.FullName -replace '\.sha256$', ''
+        $expected = (Get-Content $checksum.FullName -Raw).Split(' ')[0]
+        if ((Get-FileHash $artifact -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw "Checksum mismatch: $artifact"
+        }
+    }
+    Write-Host 'All builds and release packages completed. Checksums verified.'
+} finally {
+    & "$PSScriptRoot/clean-build.ps1"
+    Pop-Location
+}

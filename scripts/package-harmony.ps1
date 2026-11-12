@@ -4,8 +4,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-& (Join-Path $PSScriptRoot 'build-harmony.ps1') -DevEcoHome $DevEcoHome -BuildMode $BuildMode
-$output = Join-Path $root 'clients/harmony/entry/build/default/outputs/default'
+$localSigning = Test-Path (Join-Path $root 'clients/harmony/build-profile.local.json5')
+& (Join-Path $PSScriptRoot 'build-harmony.ps1') -DevEcoHome $DevEcoHome -BuildMode $BuildMode -UseLocalSigning:$localSigning
+$output = Join-Path $root "build/harmony/$BuildMode"
 $signed = Join-Path $output 'entry-default-signed.hap'
 $unsigned = Join-Path $output 'entry-default-unsigned.hap'
 if (!(Test-Path $signed) -or !(Test-Path $unsigned)) { throw 'A signed HAP is required. Configure signing in DevEco Studio first.' }

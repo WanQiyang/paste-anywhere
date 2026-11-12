@@ -9,7 +9,7 @@ pwsh -NoProfile -File scripts/check-server.ps1
 pwsh -NoProfile -File scripts/start-local-server.ps1
 ```
 
-服务监听 `http://127.0.0.1:18080`，数据库 `.local/dev.db`。首次启动创建 `ribo` 用户，邀请码位于 `.local/dev-account.json`。该文件与数据库均被 Git 忽略。重复启动复用账号，不重置邀请码。
+服务监听 `http://127.0.0.1:18080`，数据库 `data/local/dev.db`。首次启动创建 `ribo` 用户，邀请码位于 `data/local/dev-account.json`。该文件与数据库均被 Git 忽略。重复启动复用账号，不重置邀请码。服务端程序位于 `build/server/windows-amd64/paste-anywhere.exe`。
 
 若本项目的同一开发数据库服务已运行，脚本检查进程和健康接口后提示现有 PID，直接退出成功，可继续连接。其他进程占用端口时明确报错。重新编译不会自动重启现有服务；需要加载新代码时，先停止旧服务再启动。使用 `-Port` 更换端口后，两端地址及 HDC 转发也需一起调整。
 
@@ -21,7 +21,7 @@ pwsh -NoProfile -File scripts/start-local-server.ps1
 & 'C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe' -t '<设备连接标识>' rport tcp:18080 tcp:18080
 ```
 
-手机和 Windows 均填写 `http://127.0.0.1:18080`，使用同一个邀请码，不同设备名。该地址只适用于上述隧道，本机服务不对公网开放；HDC 断开后需恢复连接和转发。
+手机和 Windows 均填写 `http://127.0.0.1:18080`，使用同一个 8 位配对码，不同设备名（仅英文字母、数字，例如 `Phone`、`PC`）。同一账号不能重复配对相同设备名，需先删除旧设备或换名。该地址只适用于上述隧道，本机服务不对公网开放；HDC 断开后需恢复连接和转发。
 
 ## Windows
 
@@ -30,8 +30,8 @@ dotnet run --project clients/windows/PasteAnywhere/PasteAnywhere.csproj
 ```
 
 1. 填写地址、设备名与邀请码，连接。
-2. 在记事本选择文字并按普通 `Ctrl+C`，再按 `Ctrl+Alt+C` 发送当前剪贴板。发送时无需继续选中文字，也不会模拟复制。
-3. 普通 `Ctrl+C` 不上传。快捷键冲突时在界面更换。
+2. 在记事本选择文字并按普通 `Ctrl+C`，再按 `Ctrl+Win+Alt+C` 发送当前剪贴板。发送时无需继续选中文字，也不会模拟复制。
+3. 普通 `Ctrl+C` 不上传。快捷键冲突时右键托盘图标，选择“设置”。
 4. 关闭窗口驻留托盘，右键托盘可退出。截图工具已经写入剪贴板的内容也可直接用发送快捷键上传。
 
 ## 手机
@@ -40,7 +40,7 @@ dotnet run --project clients/windows/PasteAnywhere/PasteAnywhere.csproj
 
 - 前台打开时，Windows 上传的新文本应显示在卡片中。
 - 在浏览器分享网页链接给本应用，链接按文本自动上传。Windows 在线时应自动更新剪贴板，可到记事本直接 Ctrl+V。
-- 手机只有点击复制才写剪贴板；直接分享不写剪贴板。
+- 手机点击卡片后选择复制才写剪贴板；选择分享不写剪贴板。
 - 图片网络同步现已实现，验收步骤见 [图片联调指南](image-validation.md)；手机图片复制接口返回成功，但微信/QQ 粘贴未通过。
 - 对于尚未连接或上传失败的文本，页面保留内容并提供重试上传。首次配置账号后请重新分享要上传的内容。
 

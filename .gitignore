@@ -9,7 +9,7 @@
 **/node_modules/
 **/local.properties
 **/build-profile.local.json5
-.local/
+/build/
 data/
 dist/
 *.db

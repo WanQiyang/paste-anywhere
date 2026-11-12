@@ -18,4 +18,9 @@ public static class CredentialStore
         File.WriteAllBytes(FilePath + ".tmp", bytes);
         File.Move(FilePath + ".tmp", FilePath, true);
     }
+    public static void Clear()
+    {
+        File.Delete(FilePath);
+        File.Delete(FilePath + ".tmp");
+    }
 }

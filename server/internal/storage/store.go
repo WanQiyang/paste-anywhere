@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,14 +62,7 @@ func Open(path string, limit int, retention time.Duration) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
-	CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, invite_hash TEXT NOT NULL UNIQUE);
-	CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE);
-	CREATE TABLE IF NOT EXISTS entries(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, sender_id INTEGER NOT NULL, source_device_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
-	CREATE INDEX IF NOT EXISTS entries_user_id ON entries(user_id,id DESC);
-	CREATE TABLE IF NOT EXISTS blobs(id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL);
-	CREATE TABLE IF NOT EXISTS entry_files(entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE, blob_id TEXT NOT NULL REFERENCES blobs(id));
-	CREATE INDEX IF NOT EXISTS entry_files_blob ON entry_files(blob_id);`)
+	err = initializeSchema(db)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -93,13 +87,29 @@ func hash(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 func (s *Store) CreateUser(name string) (User, string, error) {
-	invite := secret()
-	result, err := s.db.Exec("INSERT INTO users(name,invite_hash) VALUES(?,?)", name, hash(invite))
-	if err != nil {
-		return User{}, "", err
+	if !ValidName(name) {
+		return User{}, "", ErrInvalidName
 	}
-	id, err := result.LastInsertId()
-	return User{fmt.Sprint(id), name}, invite, err
+	for attempt := 0; attempt < 8; attempt++ {
+		invite := rand.Text()[:8]
+		result, err := s.db.Exec("INSERT INTO users(name,invite_hash) VALUES(?,?) ON CONFLICT(invite_hash) DO NOTHING", name, hash(invite))
+		if err != nil {
+			if strings.Contains(err.Error(), "users.name") {
+				return User{}, "", ErrNameExists
+			}
+			return User{}, "", err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return User{}, "", err
+		}
+		if n == 0 {
+			continue
+		}
+		id, err := result.LastInsertId()
+		return User{fmt.Sprint(id), name}, invite, err
+	}
+	return User{}, "", fmt.Errorf("无法生成唯一配对码，请重试")
 }
 func (s *Store) Users() ([]User, error) {
 	rows, err := s.db.Query("SELECT id,name FROM users ORDER BY id")
@@ -118,6 +128,12 @@ func (s *Store) Users() ([]User, error) {
 	return items, rows.Err()
 }
 func (s *Store) Connect(invite, name string) (Device, User, string, error) {
+	if !ValidName(name) {
+		return Device{}, User{}, "", ErrInvalidName
+	}
+	if len(invite) != 8 {
+		return Device{}, User{}, "", fmt.Errorf("pairing code must be 8 characters")
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Device{}, User{}, "", err
@@ -127,10 +143,16 @@ func (s *Store) Connect(invite, name string) (Device, User, string, error) {
 	if err = tx.QueryRow("SELECT id,name FROM users WHERE invite_hash=?", hash(invite)).Scan(&user.ID, &user.Name); err != nil {
 		return Device{}, User{}, "", err
 	}
+	if !ValidName(user.Name) {
+		return Device{}, User{}, "", ErrInvalidName
+	}
 	token := secret()
 	device := Device{secret(), user.ID, name}
 	_, err = tx.Exec("INSERT INTO devices(id,user_id,name,token_hash) VALUES(?,?,?,?)", device.ID, user.ID, name, hash(token))
 	if err != nil {
+		if strings.Contains(err.Error(), "devices.user_id, devices.name") {
+			return Device{}, User{}, "", ErrNameExists
+		}
 		return Device{}, User{}, "", err
 	}
 	err = tx.Commit()
@@ -140,26 +162,6 @@ func (s *Store) Authenticate(token string) (Device, error) {
 	var d Device
 	err := s.db.QueryRow("SELECT id,user_id,name FROM devices WHERE token_hash=?", hash(token)).Scan(&d.ID, &d.UserID, &d.Name)
 	return d, err
-}
-func (s *Store) Devices() ([]Device, error) {
-	rows, err := s.db.Query("SELECT id,user_id,name FROM devices ORDER BY user_id,name")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Device{}
-	for rows.Next() {
-		var d Device
-		if err = rows.Scan(&d.ID, &d.UserID, &d.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, d)
-	}
-	return items, rows.Err()
-}
-func (s *Store) DeleteDevice(id string) error {
-	r, e := s.db.Exec("DELETE FROM devices WHERE id=?", id)
-	return affected(r, e)
 }
 func (s *Store) DeleteUser(id string) error {
 	r, e := s.db.Exec("DELETE FROM users WHERE id=?", id)
@@ -174,22 +176,6 @@ func affected(r sql.Result, e error) error {
 		return sql.ErrNoRows
 	}
 	return e
-}
-func (s *Store) ResetInvite(id string) (string, error) {
-	tx, e := s.db.Begin()
-	if e != nil {
-		return "", e
-	}
-	defer tx.Rollback()
-	invite := secret()
-	r, e := tx.Exec("UPDATE users SET invite_hash=? WHERE id=?", hash(invite), id)
-	if e = affected(r, e); e != nil {
-		return "", e
-	}
-	if _, e = tx.Exec("DELETE FROM devices WHERE user_id=?", id); e != nil {
-		return "", e
-	}
-	return invite, tx.Commit()
 }
 func (s *Store) CreateEntry(device Device, recipient, text string) (Entry, error) {
 	tx, err := s.db.Begin()
@@ -262,7 +248,29 @@ func (s *Store) Latest(user string) (Entry, error) {
 	return scanEntry(s.db.QueryRow("SELECT "+columns+" FROM "+entryTables+" WHERE e.user_id=? AND e.created_at>=? ORDER BY e.id DESC LIMIT 1", user, time.Now().Add(-s.Retention).UnixMilli()))
 }
 func (s *Store) History(user string) ([]Entry, error) {
-	rows, err := s.db.Query("SELECT "+columns+" FROM "+entryTables+" WHERE e.user_id=? AND e.created_at>=? ORDER BY e.id DESC LIMIT ?", user, time.Now().Add(-s.Retention).UnixMilli(), s.HistoryLimit)
+	return s.Recent(user, s.HistoryLimit)
+}
+func (s *Store) ClearClipboard(device Device) (string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	var user string
+	if err = tx.QueryRow("SELECT user_id FROM devices WHERE id=? AND user_id=?", device.ID, device.UserID).Scan(&user); err != nil {
+		return "", err
+	}
+	var through int64
+	if err = tx.QueryRow("SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='entries'),0)").Scan(&through); err != nil {
+		return "", err
+	}
+	if _, err = tx.Exec("DELETE FROM entries WHERE user_id=?", user); err != nil {
+		return "", err
+	}
+	return fmt.Sprint(through), tx.Commit()
+}
+func (s *Store) Recent(user string, limit int) ([]Entry, error) {
+	rows, err := s.db.Query("SELECT "+columns+" FROM "+entryTables+" WHERE e.user_id=? AND e.created_at>=? ORDER BY e.id DESC LIMIT ?", user, time.Now().Add(-s.Retention).UnixMilli(), min(limit, s.HistoryLimit))
 	if err != nil {
 		return nil, err
 	}

@@ -5,11 +5,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$stage = Join-Path $root ".local/package-windows-$([guid]::NewGuid().ToString('N'))"
 $dist = Join-Path $root 'dist'
 $flavor = if ($FrameworkDependent) { 'framework-dependent' } else { 'standalone' }
 $name = "PasteAnywhere-$Version-$Runtime-$flavor"
-$folder = Join-Path $stage $name
+$folder = Join-Path $root "build/windows/publish/$name"
+if (Test-Path $folder) { Remove-Item $folder -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $folder, $dist | Out-Null
 Push-Location $root
 try {
@@ -24,5 +24,4 @@ try {
     Write-Host "Windows package: $archive"
 } finally {
     Pop-Location
-    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 }

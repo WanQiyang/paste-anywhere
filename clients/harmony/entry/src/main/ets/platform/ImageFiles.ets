@@ -52,7 +52,7 @@ export class ImageFiles {
     if (attachment.mime !== 'image/png' && attachment.mime !== 'image/jpeg') { throw new Error('不支持的远程图片格式'); }
     const request = http.createHttp();
     try {
-      const result = await request.request(`${settings.server}/v1/entries/${entry.id}/image`, {
+      const result = await request.request(`${settings.server}/v1/entries/${entry.id}/content`, {
         method: http.RequestMethod.GET,
         header: { 'Authorization': `Bearer ${settings.connection.token}` },
         expectDataType: http.HttpDataType.ARRAY_BUFFER,

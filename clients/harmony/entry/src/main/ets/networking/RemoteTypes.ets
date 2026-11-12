@@ -1,4 +1,4 @@
-export interface RemoteUser { id: string; name: string; }
+export interface RemoteUser { id: string; name: string; onlineDevices?: number; }
 export interface RemoteDevice { id: string; userId: string; name: string; }
 export interface Connection { device: RemoteDevice; user: RemoteUser; token: string; }
 export interface Settings { server: string; deviceName: string; connection: Connection; }
@@ -14,6 +14,7 @@ export interface RemoteEntry {
   attachment?: Attachment;
 }
 export interface RemoteEvent { type: string; itemId?: string; sourceDeviceId?: string; }
+export interface PreparedContent { text: string; uri: string; utd: string; }
 
 // IDs are decimal strings on the wire, avoiding the JavaScript 2^53 precision limit.
 export function newer(a: string, b: string): boolean {

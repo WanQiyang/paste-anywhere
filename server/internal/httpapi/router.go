@@ -11,7 +11,9 @@ import (
 	_ "image/png"
 	"io"
 	"log"
+	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,15 +48,15 @@ func New(store *storage.Store, maxText int, maxImage int) *API {
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) })
-	mux.HandleFunc("POST /v1/connect", a.connect)
+	mux.HandleFunc("POST /v1/devices", a.createDevice)
+	mux.HandleFunc("DELETE /v1/devices/{name}", a.auth(a.deleteDevice))
 	mux.HandleFunc("GET /v1/users", a.auth(a.users))
 	mux.HandleFunc("POST /v1/entries", a.auth(a.upload))
-	mux.HandleFunc("POST /v1/images", a.auth(a.uploadImage))
-	mux.HandleFunc("GET /v1/entries/{id}/image", a.auth(a.downloadImage))
-	mux.HandleFunc("GET /v1/clipboard", a.auth(a.latest))
-	mux.HandleFunc("GET /v1/history", a.auth(a.history))
+	mux.HandleFunc("GET /v1/entries/{id}/content", a.auth(a.content))
+	mux.HandleFunc("DELETE /v1/entries", a.auth(a.clearClipboard))
+	mux.HandleFunc("GET /v1/entries", a.auth(a.listEntries))
 	mux.HandleFunc("GET /v1/entries/{id}", a.auth(a.entry))
-	mux.HandleFunc("POST /v1/entries/{id}/send", a.auth(a.send))
+	mux.HandleFunc("POST /v1/transfers", a.auth(a.createTransfer))
 	mux.HandleFunc("GET /v1/events", a.auth(a.events))
 	return mux
 }
@@ -68,6 +70,11 @@ func fail(w http.ResponseWriter, status int, message string) {
 	write(w, status, map[string]string{"error": message})
 }
 func decode(w http.ResponseWriter, r *http.Request, v any, max int64) bool {
+	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || contentType != "application/json" {
+		fail(w, 415, "Content-Type must be application/json")
+		return false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, max)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
@@ -96,7 +103,7 @@ func (a *API) auth(next func(http.ResponseWriter, *http.Request, storage.Device)
 		next(w, r, d)
 	}
 }
-func (a *API) connect(w http.ResponseWriter, r *http.Request) {
+func (a *API) createDevice(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Invite     string `json:"invite"`
 		DeviceName string `json:"deviceName"`
@@ -105,11 +112,19 @@ func (a *API) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.DeviceName = strings.TrimSpace(input.DeviceName)
-	if len(input.Invite) != 64 || len(input.DeviceName) == 0 || len(input.DeviceName) > 128 {
+	if len(input.Invite) != 8 || !storage.ValidName(input.DeviceName) {
 		fail(w, 400, "invalid invite or device name")
 		return
 	}
 	d, u, token, e := a.store.Connect(input.Invite, input.DeviceName)
+	if errors.Is(e, storage.ErrNameExists) {
+		fail(w, http.StatusConflict, "device name exists")
+		return
+	}
+	if errors.Is(e, storage.ErrInvalidName) {
+		fail(w, http.StatusBadRequest, "invalid user or device name")
+		return
+	}
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 401, "invalid invite")
 		return
@@ -118,6 +133,7 @@ func (a *API) connect(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, e)
 		return
 	}
+	w.Header().Set("Location", "/v1/devices/"+u.Name+"-"+d.Name)
 	write(w, 201, struct {
 		Device storage.Device `json:"device"`
 		User   storage.User   `json:"user"`
@@ -134,19 +150,94 @@ func (a *API) users(w http.ResponseWriter, r *http.Request, d storage.Device) {
 		a.internal(w, e)
 		return
 	}
-	write(w, 200, u)
+	a.mu.Lock()
+	online := make(map[string]map[string]bool)
+	for sub := range a.subs {
+		if online[sub.device.UserID] == nil {
+			online[sub.device.UserID] = make(map[string]bool)
+		}
+		online[sub.device.UserID][sub.device.ID] = true
+	}
+	a.mu.Unlock()
+	result := make([]PresenceUser, 0, len(u))
+	for _, user := range u {
+		count := len(online[user.ID])
+		result = append(result, PresenceUser{user.ID, user.Name, count})
+	}
+	write(w, 200, result)
 }
-func (a *API) latest(w http.ResponseWriter, r *http.Request, d storage.Device) {
-	e, err := a.store.Latest(d.UserID)
-	if errors.Is(err, sql.ErrNoRows) {
-		write(w, 200, nil)
+
+type PresenceUser struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	OnlineDevices int    `json:"onlineDevices"`
+}
+
+func (a *API) clearClipboard(w http.ResponseWriter, r *http.Request, d storage.Device) {
+	a.mu.Lock()
+	through, err := a.store.ClearClipboard(d)
+	event := Event{Type: "clipboard.cleared", ItemID: through, SourceDeviceID: d.ID}
+	if err == nil {
+		for sub := range a.subs {
+			if sub.device.UserID != d.UserID {
+				continue
+			}
+			select {
+			case sub.events <- event:
+			default:
+				close(sub.overflow)
+				delete(a.subs, sub)
+			}
+		}
+	}
+	a.mu.Unlock()
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			fail(w, 401, "invalid device credential")
+		} else {
+			a.internal(w, err)
+		}
 		return
 	}
+	write(w, 200, event)
+}
+
+func (a *API) deleteDevice(w http.ResponseWriter, r *http.Request, d storage.Device) {
+	name := r.PathValue("name")
+	userName, deviceName, valid := strings.Cut(name, "-")
+	if !valid || !storage.ValidName(userName) || !storage.ValidName(deviceName) {
+		fail(w, 400, "invalid device name")
+		return
+	}
+	identity, err := a.store.DeviceIdentity(d.ID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			fail(w, 401, "invalid device credential")
+		} else {
+			a.internal(w, err)
+		}
+		return
+	}
+	if identity != name {
+		fail(w, 403, "only the authenticated device can be deleted")
+		return
+	}
+	a.mu.Lock()
+	err = a.store.RevokeDevice(d.ID)
+	if err == nil {
+		for sub := range a.subs {
+			if sub.device.ID == d.ID {
+				close(sub.overflow)
+				delete(a.subs, sub)
+			}
+		}
+	}
+	a.mu.Unlock()
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		a.internal(w, err)
 		return
 	}
-	write(w, 200, e)
+	w.WriteHeader(http.StatusNoContent)
 }
 func (a *API) entry(w http.ResponseWriter, r *http.Request, d storage.Device) {
 	e, err := a.store.Entry(d.UserID, r.PathValue("id"))
@@ -160,8 +251,17 @@ func (a *API) entry(w http.ResponseWriter, r *http.Request, d storage.Device) {
 	}
 	write(w, 200, e)
 }
-func (a *API) history(w http.ResponseWriter, r *http.Request, d storage.Device) {
-	e, err := a.store.History(d.UserID)
+func (a *API) listEntries(w http.ResponseWriter, r *http.Request, d storage.Device) {
+	limit := a.store.HistoryLimit
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 {
+			fail(w, 400, "invalid entry limit")
+			return
+		}
+		limit = parsed
+	}
+	e, err := a.store.Recent(d.UserID, limit)
 	if err != nil {
 		a.internal(w, err)
 		return
@@ -169,6 +269,20 @@ func (a *API) history(w http.ResponseWriter, r *http.Request, d storage.Device) 
 	write(w, 200, e)
 }
 func (a *API) upload(w http.ResponseWriter, r *http.Request, d storage.Device) {
+	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		fail(w, 415, "Content-Type must be application/json, image/png or image/jpeg")
+		return
+	}
+	switch contentType {
+	case "image/png", "image/jpeg":
+		a.uploadImage(w, r, d, contentType)
+		return
+	case "application/json":
+	default:
+		fail(w, 415, "Content-Type must be application/json, image/png or image/jpeg")
+		return
+	}
 	var input struct {
 		Text string `json:"text"`
 	}
@@ -181,14 +295,19 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request, d storage.Device) {
 	}
 	a.create(w, d, func() (storage.Entry, error) { return a.store.CreateEntry(d, d.UserID, input.Text) })
 }
-func (a *API) send(w http.ResponseWriter, r *http.Request, d storage.Device) {
+func (a *API) createTransfer(w http.ResponseWriter, r *http.Request, d storage.Device) {
 	var input struct {
-		UserID string `json:"userId"`
+		EntryID string `json:"entryId"`
+		UserID  string `json:"userId"`
 	}
 	if !decode(w, r, &input, 1024) {
 		return
 	}
-	a.create(w, d, func() (storage.Entry, error) { return a.store.Forward(d, r.PathValue("id"), input.UserID) })
+	if input.EntryID == "" || input.UserID == "" {
+		fail(w, 400, "entryId and userId are required")
+		return
+	}
+	a.create(w, d, func() (storage.Entry, error) { return a.store.Forward(d, input.EntryID, input.UserID) })
 }
 func (a *API) create(w http.ResponseWriter, d storage.Device, commit func() (storage.Entry, error)) {
 	a.mu.Lock()
@@ -214,10 +333,11 @@ func (a *API) create(w http.ResponseWriter, d storage.Device, commit func() (sto
 		}
 		return
 	}
+	w.Header().Set("Location", "/v1/entries/"+e.ID)
 	write(w, 201, e)
 }
 
-func (a *API) uploadImage(w http.ResponseWriter, r *http.Request, d storage.Device) {
+func (a *API) uploadImage(w http.ResponseWriter, r *http.Request, d storage.Device, contentType string) {
 	select {
 	case a.imageWork <- struct{}{}:
 		defer func() { <-a.imageWork }()
@@ -240,6 +360,10 @@ func (a *API) uploadImage(w http.ResponseWriter, r *http.Request, d storage.Devi
 		fail(w, 415, "expected a PNG or JPEG image")
 		return
 	}
+	if contentType != "image/"+format {
+		fail(w, 415, "image format does not match Content-Type")
+		return
+	}
 	if config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 40_000_000 {
 		fail(w, 400, "image exceeds 40 megapixels")
 		return
@@ -256,7 +380,23 @@ func (a *API) uploadImage(w http.ResponseWriter, r *http.Request, d storage.Devi
 	a.create(w, d, func() (storage.Entry, error) { return a.store.CreateImage(d, data, attachment) })
 }
 
-func (a *API) downloadImage(w http.ResponseWriter, r *http.Request, d storage.Device) {
+func (a *API) content(w http.ResponseWriter, r *http.Request, d storage.Device) {
+	entry, err := a.store.Entry(d.UserID, r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			fail(w, 404, "entry not found")
+		} else {
+			a.internal(w, err)
+		}
+		return
+	}
+	if entry.Kind == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, r, "clipboard.txt", time.UnixMilli(entry.CreatedAt), strings.NewReader(entry.Text))
+		return
+	}
 	f, attachment, err := a.store.OpenImage(d.UserID, r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -283,6 +423,11 @@ func (a *API) events(w http.ResponseWriter, r *http.Request, d storage.Device) {
 	ctx := c.CloseRead(r.Context())
 	sub := &subscription{d, make(chan Event, 32), make(chan struct{})}
 	a.mu.Lock()
+	if _, err := a.store.Authenticate(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); err != nil {
+		a.mu.Unlock()
+		_ = c.Close(websocket.StatusPolicyViolation, "credential revoked")
+		return
+	}
 	a.subs[sub] = true
 	a.mu.Unlock()
 	defer func() { a.mu.Lock(); delete(a.subs, sub); a.mu.Unlock() }()
@@ -296,7 +441,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request, d storage.Device) {
 		case <-ctx.Done():
 			return
 		case <-sub.overflow:
-			_ = c.Close(websocket.StatusPolicyViolation, "slow consumer; reconnect for future updates")
+			_ = c.Close(websocket.StatusPolicyViolation, "subscription ended")
 			return
 		case e := <-sub.events:
 			if !sendEvent(ctx, c, e) {

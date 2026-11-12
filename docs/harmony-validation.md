@@ -27,11 +27,11 @@
 pwsh -NoProfile -File scripts/build-harmony.ps1
 ```
 
-默认产物目录：`clients/harmony/entry/build/default/outputs/default/`。
+脚本产物目录：`build/harmony/debug/` 或 `build/harmony/release/`（取决于 `-BuildMode`），保存 HAP、映射和打包信息。Hvigor 工程内输出仅作中间文件，`scripts/clean-build.ps1` 可以清除；`scripts/build-all.ps1` 在完成后自动清除。
 
 签名证书、Profile 和密码仅保存在本机。IDE 可能将本机签名配置写入 `build-profile.json5`，提交前检查差异，不提交该部分；仓库中的 `signingConfigs` 保持空数组。`.gitignore` 已忽略常见签名文件及构建产物。
 
-提交整理时已将本机完整签名工程配置备份为 `clients/harmony/build-profile.local.json5`（被 Git 忽略）。此文件不会自动加载；需要本机签名时可在 IDE 重新配置，或将备份中的签名部分合入 `build-profile.json5`，提交前再次移除。无签名配置的干净检出只能构建 unsigned HAP。
+本机完整签名配置位于 `clients/harmony/build-profile.local.json5`（被 Git 忽略）。`build-harmony.ps1 -UseLocalSigning` 仅在构建期间合入签名配置，完成或失败后恢复原始 `build-profile.json5`；`package-harmony.ps1` 检测到本机配置后自动使用。无签名配置的干净检出只能构建 unsigned HAP，发布打包会明确失败，不复用旧签名产物。
 
 ## 真机验证反馈
 

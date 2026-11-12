@@ -60,36 +60,6 @@ func TestImageReferenceCleanupAndRollback(t *testing.T) {
 	}
 }
 
-func TestExistingTextDatabaseUpgrade(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,invite_hash TEXT NOT NULL UNIQUE);
-	CREATE TABLE devices(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,name TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE);
-	CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,sender_id INTEGER NOT NULL,source_device_id TEXT NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,created_at INTEGER NOT NULL);
-	INSERT INTO users VALUES(1,'legacy','invite'); INSERT INTO devices VALUES('device',1,'old device','token');
-	INSERT INTO entries VALUES(17,1,1,'device','text','preserved',?)`, time.Now().UnixMilli())
-	db.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, 20, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	e, err := s.Latest("1")
-	if err != nil || e.Text != "preserved" || e.ID != "17" || e.Attachment != nil {
-		t.Fatalf("legacy data changed: %+v %v", e, err)
-	}
-	e, err = s.CreateImage(Device{ID: "device", UserID: "1"}, []byte("new image"), Attachment{Name: "image.png"})
-	if err != nil || e.ID != "18" {
-		t.Fatalf("global sequence reset: %+v %v", e, err)
-	}
-}
-
 func TestPersistenceExpiryAndIDs(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "data.db")
 	s, err := Open(path, 2, time.Hour)

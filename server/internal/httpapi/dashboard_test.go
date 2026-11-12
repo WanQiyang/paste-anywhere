@@ -143,8 +143,8 @@ func TestDashboardHistoryAndSendToSelf(t *testing.T) {
 		t.Fatalf("wrong dashboard entries: %+v", items)
 	}
 	request("POST", "/v1/transfers", fmt.Sprintf(`{"entryId":%q,"userId":%q}`, items[4].ID, user.ID), 201)
-	latest, err := s.Latest(user.ID)
-	if err != nil || latest.Text != "item2" || latest.ID == items[4].ID {
+	latest, err := s.Recent(user.ID, 1)
+	if err != nil || len(latest) != 1 || latest[0].Text != "item2" || latest[0].ID == items[4].ID {
 		t.Fatalf("sending history to self failed: %+v %v", latest, err)
 	}
 	for _, value := range []string{"0", "-1", "invalid"} {
@@ -155,8 +155,8 @@ func TestDashboardHistoryAndSendToSelf(t *testing.T) {
 		t.Fatalf("configured history limit ignored: %+v %v", items, err)
 	}
 	request("DELETE", "/v1/devices/Alice-PC", "", 204)
-	latest, err = s.Latest(user.ID)
-	if err != nil || latest.Text != "item2" {
+	latest, err = s.Recent(user.ID, 1)
+	if err != nil || len(latest) != 1 || latest[0].Text != "item2" {
 		t.Fatal("logout deleted clipboard history", err)
 	}
 }

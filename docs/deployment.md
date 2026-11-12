@@ -41,7 +41,7 @@ docker compose --project-directory deploy -f deploy/compose.yaml exec server /pa
 
 升级使用同一个目录和 Compose 项目名执行 `up -d --build`，保留数据卷。普通停机使用 `down`，**不要使用 `down -v`，它会删除数据卷**。
 
-客户端与服务端统一使用新版 REST 接口：`POST /v1/devices` 配对、`DELETE /v1/devices/{用户名}-{设备名}` 登出、`GET/POST/DELETE /v1/entries` 查询/上传/清空、`POST /v1/transfers` 转发；用户在线状态由 `onlineDevices` 判断。旧路径已移除，服务端和两端客户端需要同步更新。替换部署包后执行 `up -d --build` 重建容器；本次接口更新不改变当前数据库格式。
+0.2.0 沿用当前 REST 接口和数据库格式。替换部署包后执行 `up -d --build` 重建容器；更早仍使用旧路径的客户端需要一起更新。
 
 需要一致性备份时，先停止写入，再打包整个数据目录（包括 SQLite WAL 及附件）：
 

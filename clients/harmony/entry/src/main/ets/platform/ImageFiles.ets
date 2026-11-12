@@ -7,6 +7,7 @@ const MAX_BYTES: number = 16 * 1024 * 1024;
 
 export class ImageFiles {
   private static sequence: number = 0;
+  private static pruning: boolean = false;
 
   static async uploadBytes(uri: string): Promise<ArrayBuffer> {
     try {
@@ -80,6 +81,8 @@ export class ImageFiles {
   }
 
   static async prune(cacheDir: string): Promise<void> {
+    if (!cacheDir || ImageFiles.pruning) { return; }
+    ImageFiles.pruning = true;
     try {
       const names = await fs.listFile(cacheDir);
       interface CachedFile { path: string; modified: number; }
@@ -99,5 +102,6 @@ export class ImageFiles {
         if (i >= 20 || Date.now() / 1000 - file.modified > 7 * 86400) { await fs.unlink(file.path); }
       }
     } catch (error) { console.warn(`Image cache cleanup: ${error.message}`); }
+    finally { ImageFiles.pruning = false; }
   }
 }

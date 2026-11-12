@@ -1,6 +1,6 @@
 param(
     [ValidateSet('win-x64', 'win-arm64')][string]$Runtime = 'win-x64',
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = (Get-Content "$PSScriptRoot/../VERSION" -Raw).Trim(),
     [switch]$FrameworkDependent
 )
 $ErrorActionPreference = 'Stop'
@@ -14,7 +14,7 @@ New-Item -ItemType Directory -Force -Path $folder, $dist | Out-Null
 Push-Location $root
 try {
     $selfContained = if ($FrameworkDependent) { 'false' } else { 'true' }
-    dotnet publish clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -r $Runtime --self-contained $selfContained -p:Version=$Version -p:PublishTrimmed=false -o $folder
+    dotnet publish clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -r $Runtime --self-contained $selfContained -p:Version=$Version -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o $folder
     if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed' }
     Copy-Item (Join-Path $root 'docs/windows-release.md') (Join-Path $folder 'README.md')
     $archive = Join-Path $dist "$name.zip"

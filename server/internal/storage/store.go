@@ -163,10 +163,6 @@ func (s *Store) Authenticate(token string) (Device, error) {
 	err := s.db.QueryRow("SELECT id,user_id,name FROM devices WHERE token_hash=?", hash(token)).Scan(&d.ID, &d.UserID, &d.Name)
 	return d, err
 }
-func (s *Store) DeleteUser(id string) error {
-	r, e := s.db.Exec("DELETE FROM users WHERE id=?", id)
-	return affected(r, e)
-}
 func affected(r sql.Result, e error) error {
 	if e != nil {
 		return e
@@ -243,12 +239,6 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 }
 func (s *Store) Entry(user, id string) (Entry, error) {
 	return scanEntry(s.db.QueryRow("SELECT "+columns+" FROM "+entryTables+" WHERE e.user_id=? AND e.id=? AND e.created_at>=?", user, id, time.Now().Add(-s.Retention).UnixMilli()))
-}
-func (s *Store) Latest(user string) (Entry, error) {
-	return scanEntry(s.db.QueryRow("SELECT "+columns+" FROM "+entryTables+" WHERE e.user_id=? AND e.created_at>=? ORDER BY e.id DESC LIMIT 1", user, time.Now().Add(-s.Retention).UnixMilli()))
-}
-func (s *Store) History(user string) ([]Entry, error) {
-	return s.Recent(user, s.HistoryLimit)
 }
 func (s *Store) ClearClipboard(device Device) (string, error) {
 	tx, err := s.db.Begin()

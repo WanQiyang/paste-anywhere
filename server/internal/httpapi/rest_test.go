@@ -133,3 +133,36 @@ func TestRESTResourcesAndDeviceAuthorization(t *testing.T) {
 	request("GET", "/v1/users", phoneToken, "", nil, 200)
 	request("GET", "/v1/users", tokenB, "", nil, 200)
 }
+
+// Clients may discard local credentials on 401 during logout. A storage outage
+// must remain a server error, rather than falsely revoking a valid identity.
+func TestStorageFailureIsNotInvalidCredential(t *testing.T) {
+	s, err := storage.Open(filepath.Join(t.TempDir(), "unavailable.db"), 20, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, invite, err := s.CreateUser("Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, token, err := s.Connect(invite, "PC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(s, 1024, 4096).Handler()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, endpoint := range []struct{ method, path string }{
+		{"GET", "/v1/users"}, {"DELETE", "/v1/devices/Alice-PC"},
+	} {
+		r := httptest.NewRequest(endpoint.method, endpoint.path, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("%s: storage failure returned %d", endpoint.path, w.Code)
+		}
+	}
+}

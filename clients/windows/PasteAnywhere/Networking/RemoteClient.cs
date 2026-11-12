@@ -11,10 +11,7 @@ public record RemoteUser(string Id, string Name, int? OnlineDevices = null);
 public record RemoteDevice(string Id, string UserId, string Name);
 public record Connection(RemoteDevice Device, RemoteUser User, string Token);
 public record Attachment(string Id, string Name, string Mime, long Size, int Width, int Height);
-public record Entry(string Id, string UserId, string SenderId, string SourceDeviceId, string Kind, string Text, long CreatedAt, Attachment? Attachment = null)
-{
-    public string Summary => Kind == "image" ? $"图片 · {Attachment?.Width} × {Attachment?.Height}" : Text;
-}
+public record Entry(string Id, string UserId, string SenderId, string SourceDeviceId, string Kind, string Text, long CreatedAt, Attachment? Attachment = null);
 public record RemoteEvent(string Type, string? ItemId, string? SourceDeviceId);
 public record Settings(string Server, string DeviceName, Connection Connection, string Shortcut);
 
@@ -46,11 +43,20 @@ public sealed class RemoteClient : IDisposable
         {
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"服务端返回 {(int)response.StatusCode}：{await response.Content.ReadAsStringAsync(ct)}", null, response.StatusCode);
-            return (await response.Content.ReadFromJsonAsync<T>(Json, ct))!;
+            return await response.Content.ReadFromJsonAsync<T>(Json, ct) ?? throw new JsonException("Empty response");
         }
     }
-    public Task<Connection> Connect(string invite, string name, CancellationToken ct = default) =>
-        Post<Connection>("v1/devices", new { invite, deviceName = name }, ct);
+    public async Task<Connection> Connect(string invite, string name, CancellationToken ct = default)
+    {
+        var connection = await Post<Connection>("v1/devices", new { invite, deviceName = name }, ct);
+        if (connection.Device == null || connection.User == null ||
+            string.IsNullOrWhiteSpace(connection.Device.Id) || string.IsNullOrWhiteSpace(connection.User.Id) ||
+            string.IsNullOrWhiteSpace(connection.User.Name) || connection.Device.Name != name ||
+            connection.Device.UserId != connection.User.Id || connection.Token?.Length != 64 ||
+            !connection.Token.All(char.IsAsciiHexDigit))
+            throw new JsonException("Invalid pairing response");
+        return connection;
+    }
     public Task<Entry> Upload(string text, CancellationToken ct = default) => Post<Entry>("v1/entries", new { text }, ct);
     public async Task<Entry> UploadImage(byte[] image, CancellationToken ct = default)
     {

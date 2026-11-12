@@ -1,17 +1,19 @@
 param(
     [string]$DevEcoHome = $env:DEVECO_HOME,
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = (Get-Content "$PSScriptRoot/../VERSION" -Raw).Trim()
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
+    $harmonyVersion = (Get-Content clients/harmony/AppScope/app.json5 -Raw | ConvertFrom-Json).app.versionName
+    if ($Version -ne $harmonyVersion) { throw 'VERSION and HarmonyOS versionName must match before release' }
     & "$PSScriptRoot/clean-build.ps1" -IncludeOutputs
     & "$PSScriptRoot/check-server.ps1"
-    dotnet build clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -p:CopyRetryCount=0
+    dotnet build clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -p:Version=$Version -p:CopyRetryCount=0
     if ($LASTEXITCODE -ne 0) { throw 'Windows client build failed' }
     & "$PSScriptRoot/package-server.ps1" -Version $Version
-    & "$PSScriptRoot/package-windows.ps1" -Version $Version
+    & "$PSScriptRoot/package-windows.ps1" -Version $Version -FrameworkDependent
     & "$PSScriptRoot/package-harmony.ps1" -DevEcoHome $DevEcoHome -BuildMode release
     foreach ($checksum in Get-ChildItem dist -Filter '*.sha256') {
         $artifact = $checksum.FullName -replace '\.sha256$', ''

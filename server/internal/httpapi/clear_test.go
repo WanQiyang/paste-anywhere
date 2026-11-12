@@ -149,7 +149,7 @@ func TestClearClipboardIsolationNotificationsAndWatermark(t *testing.T) {
 	if _, err := s.ClearClipboard(d); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("revoked device could clear", err)
 	}
-	if latest, err := s.Latest(a.ID); err != nil || latest.ID != fresh.ID {
+	if latest, err := s.Recent(a.ID, 1); err != nil || len(latest) != 1 || latest[0].ID != fresh.ID {
 		t.Fatal("fresh content lost", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)

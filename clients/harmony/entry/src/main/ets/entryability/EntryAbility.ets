@@ -9,7 +9,6 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     AppStorage.setOrCreate('probeText', '');
     AppStorage.setOrCreate('probeImage', '');
-    AppStorage.setOrCreate('probeType', 'general.plain-text');
     AppStorage.setOrCreate('probeStatus', '');
     AppStorage.setOrCreate('remoteId', '');
     AppStorage.setOrCreate('serverAddress', '');
@@ -20,7 +19,6 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('onlineDeviceCount', -1);
     AppStorage.setOrCreate('pendingUpload', false);
     AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
-    AppStorage.setOrCreate('networkStatus', '未连接');
     AppStorage.setOrCreate<RemoteUser[]>('remoteUsers', []);
     if (want.action === 'ohos.want.action.sendData') { RemoteClipboard.incoming(); }
     void this.receive(want);

@@ -103,11 +103,11 @@ func TestCrossUserRoundTrip(t *testing.T) {
 			// These must be the first notifications: A's ordinary upload must not leak to B.
 			read(cb, toB.ID, deviceA.ID)
 			read(cb2, toB.ID, deviceA.ID)
-			latest, err := s.Latest(a.ID)
-			if err != nil || latest.ID != original.ID {
+			latest, err := s.Recent(a.ID, 1)
+			if err != nil || len(latest) != 1 || latest[0].ID != original.ID {
 				t.Fatal("sending overwrote sender's clipboard", err)
 			}
-			history, err := s.History(b.ID)
+			history, err := s.Recent(b.ID, s.HistoryLimit)
 			if err != nil || len(history) != 2 || history[1].ID != old.ID {
 				t.Fatal("recipient history was lost", err)
 			}
@@ -120,8 +120,8 @@ func TestCrossUserRoundTrip(t *testing.T) {
 			if kind == "image" && (back.Attachment == nil || back.Attachment.ID != original.Attachment.ID) {
 				t.Fatal("image attachment not reused")
 			}
-			latest, err = s.Latest(b.ID)
-			if err != nil || latest.ID != toB.ID {
+			latest, err = s.Recent(b.ID, 1)
+			if err != nil || len(latest) != 1 || latest[0].ID != toB.ID {
 				t.Fatal("return send overwrote B's clipboard", err)
 			}
 		})

@@ -42,7 +42,7 @@ func TestImageReferenceCleanupAndRollback(t *testing.T) {
 		t.Fatal("pruned entry still accessible", err)
 	}
 	path := filepath.Join(s.files, e.Attachment.ID)
-	if err = s.DeleteUser(other.ID); err != nil {
+	if err = s.DeleteUserByName(other.Name); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Cleanup(); err != nil {
@@ -89,7 +89,7 @@ func TestPersistenceExpiryAndIDs(t *testing.T) {
 	if restored, err := s.Authenticate(token); err != nil || restored.ID != d.ID {
 		t.Fatal("device credential was not persisted", err)
 	}
-	if restored, err := s.Latest(u.ID); err != nil || restored.Text != "persisted" {
+	if restored, err := s.Recent(u.ID, 1); err != nil || len(restored) != 1 || restored[0].Text != "persisted" {
 		t.Fatal("entry was not persisted", err)
 	}
 	// Move the persisted row outside the retention window without sleeping.
@@ -111,7 +111,7 @@ func TestPersistenceExpiryAndIDs(t *testing.T) {
 	if nextID <= previousID {
 		t.Fatal("global ID reused after cleanup")
 	}
-	if err = s.DeleteUser(u.ID); err != nil {
+	if err = s.DeleteUserByName(u.Name); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.Authenticate(token); !errors.Is(err, sql.ErrNoRows) {

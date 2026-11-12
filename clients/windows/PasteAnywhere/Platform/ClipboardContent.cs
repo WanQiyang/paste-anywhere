@@ -53,10 +53,11 @@ public sealed record ClipboardContent(string? Text, byte[]? Image)
     {
         if (Image == null) { System.Windows.Clipboard.SetText(Text ?? ""); return; }
         var data = new System.Windows.DataObject();
-        data.SetImage(decoded ?? Decode(Image));
+        decoded ??= Decode(Image);
+        data.SetImage(decoded);
         // Preserve PNG representation alongside the standard bitmap format where possible.
         using var png = new MemoryStream();
-        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(decoded ?? Decode(Image))); encoder.Save(png);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(decoded)); encoder.Save(png);
         png.Position = 0;
         data.SetData("PNG", png);
         System.Windows.Clipboard.SetDataObject(data, true);

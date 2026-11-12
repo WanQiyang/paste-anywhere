@@ -55,7 +55,6 @@ export class ClipboardProbe {
       }
       AppStorage.setOrCreate('probeText', text);
       AppStorage.setOrCreate('probeImage', uri);
-      AppStorage.setOrCreate('probeType', record.utd);
       try {
         AppStorage.setOrCreate('probeStatus', uri ? '正在上传图片…' : '正在上传文本…');
         await RemoteClipboard.upload(text, uri);

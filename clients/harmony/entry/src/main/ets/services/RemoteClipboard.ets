@@ -100,7 +100,14 @@ export class RemoteClipboard {
     const body: ConnectBody = { invite: invite.trim(), deviceName: deviceName.trim() };
     const response = await RemoteClipboard.request(server, '', '/v1/devices', http.RequestMethod.POST, JSON.stringify(body));
     let connection: Connection;
-    try { connection = JSON.parse(response) as Connection; }
+    try {
+      connection = JSON.parse(response) as Connection;
+      if (!connection?.device?.id || !connection.user?.id || !connection.user.name ||
+        connection.device.name !== body.deviceName || connection.device.userId !== connection.user.id ||
+        typeof connection.token !== 'string' || !/^[a-fA-F0-9]{64}$/.test(connection.token)) {
+        throw new Error('Invalid pairing response');
+      }
+    }
     catch (error) { throw new Error('服务器返回数据不正确。'); }
     const settings: Settings = { server: server, deviceName: deviceName, connection: connection };
     if (!RemoteClipboard.prefs) { throw new Error('配置存储尚未初始化，请稍后重试。'); }
@@ -135,7 +142,7 @@ export class RemoteClipboard {
       AppStorage.setOrCreate('accountName', ''); AppStorage.setOrCreate('accountId', '');
       AppStorage.setOrCreate('deviceName', ''); AppStorage.setOrCreate('serverAddress', '');
       AppStorage.setOrCreate('probeText', ''); AppStorage.setOrCreate('probeImage', '');
-      AppStorage.setOrCreate('probeType', ''); AppStorage.setOrCreate('probeStatus', '');
+      AppStorage.setOrCreate('probeStatus', '');
       AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('pendingUpload', false);
       AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
       AppStorage.setOrCreate<RemoteUser[]>('remoteUsers', []);
@@ -145,6 +152,7 @@ export class RemoteClipboard {
     ++RemoteClipboard.incomingRevision;
     AppStorage.setOrCreate('pendingUpload', true);
     AppStorage.setOrCreate('remoteId', '');
+    AppStorage.setOrCreate('probeText', ''); AppStorage.setOrCreate('probeImage', '');
   }
   private static mergeEntry(entry: RemoteEntry): void {
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) { return; }
@@ -205,6 +213,7 @@ export class RemoteClipboard {
     void RemoteClipboard.refresh();
   }
   static async foreground(): Promise<void> {
+    if (!RemoteClipboard.active) { void ImageFiles.prune(RemoteClipboard.cacheDir); }
     RemoteClipboard.active = true;
     const settings = RemoteClipboard.settings;
     if (!settings || RemoteClipboard.socket || RemoteClipboard.loggingOut) { return; }
@@ -218,7 +227,6 @@ export class RemoteClipboard {
           const event = JSON.parse(data) as RemoteEvent;
           if (event.type === 'ready') {
             AppStorage.setOrCreate('networkConnected', true);
-            AppStorage.setOrCreate('networkStatus', '已连接');
             void RemoteClipboard.refresh();
             if (RemoteClipboard.poll !== -1) { clearInterval(RemoteClipboard.poll); }
             RemoteClipboard.poll = setInterval(() => { void RemoteClipboard.refresh(); }, 5000);
@@ -245,7 +253,6 @@ export class RemoteClipboard {
     if (epoch !== RemoteClipboard.epoch) { return; }
     RemoteClipboard.stop();
     if (!RemoteClipboard.active || RemoteClipboard.loggingOut) { return; }
-    AppStorage.setOrCreate('networkStatus', '未连接');
     RemoteClipboard.retry = setTimeout(() => { RemoteClipboard.retry = -1; void RemoteClipboard.foreground(); }, 3000);
   }
   private static stop(): void {
@@ -261,7 +268,6 @@ export class RemoteClipboard {
   static background(): void {
     RemoteClipboard.active = false;
     RemoteClipboard.stop();
-    AppStorage.setOrCreate('networkStatus', '未连接');
   }
   static async refresh(): Promise<void> {
     const settings = RemoteClipboard.settings;

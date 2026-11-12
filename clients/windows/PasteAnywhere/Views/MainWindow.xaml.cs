@@ -205,7 +205,7 @@ public partial class MainWindow : Window
     }
     private async Task StartSession(Settings value)
     {
-        session.Cancel(); client?.Dispose();
+        session.Cancel(); session.Dispose(); client?.Dispose();
         session = new CancellationTokenSource(); newest = 0; clearedThrough = 0; entries = []; users = []; ++dashboardRevision;
         client = new RemoteClient(value.Server, value.Connection.Token);
         AccountText.Text = $"{value.Connection.User.Name}-{value.Connection.Device.Name}";
@@ -507,6 +507,6 @@ public partial class MainWindow : Window
     {
         if (!exiting) { e.Cancel = true; Hide(); return; }
         dashboardTimer.Stop(); holdTimer.Stop(); dragTimer.Stop(); toastTimer.Stop();
-        session.Cancel(); client?.Dispose(); shortcut?.Dispose(); tray?.Dispose(); trayIcon?.Dispose();
+        session.Cancel(); session.Dispose(); client?.Dispose(); shortcut?.Dispose(); tray?.ContextMenuStrip?.Dispose(); tray?.Dispose(); trayIcon?.Dispose();
     }
 }

@@ -1,7 +1,7 @@
 {
   "name": "paste-anywhere",
-  "version": "0.1.0",
-  "description": "Paste Anywhere platform capability probe",
+  "version": "0.2.0",
+  "description": "Paste Anywhere HarmonyOS client",
   "modelVersion": "6.0.0",
   "dependencies": {}
 }

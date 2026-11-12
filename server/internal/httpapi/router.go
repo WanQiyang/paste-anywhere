@@ -97,7 +97,11 @@ func (a *API) auth(next func(http.ResponseWriter, *http.Request, storage.Device)
 		}
 		d, e := a.store.Authenticate(token)
 		if e != nil {
-			fail(w, 401, "invalid device credential")
+			if errors.Is(e, sql.ErrNoRows) {
+				fail(w, 401, "invalid device credential")
+			} else {
+				a.internal(w, e)
+			}
 			return
 		}
 		next(w, r, d)
@@ -178,17 +182,7 @@ func (a *API) clearClipboard(w http.ResponseWriter, r *http.Request, d storage.D
 	through, err := a.store.ClearClipboard(d)
 	event := Event{Type: "clipboard.cleared", ItemID: through, SourceDeviceID: d.ID}
 	if err == nil {
-		for sub := range a.subs {
-			if sub.device.UserID != d.UserID {
-				continue
-			}
-			select {
-			case sub.events <- event:
-			default:
-				close(sub.overflow)
-				delete(a.subs, sub)
-			}
-		}
+		a.publish(d.UserID, "", event)
 	}
 	a.mu.Unlock()
 	if err != nil {
@@ -313,16 +307,7 @@ func (a *API) create(w http.ResponseWriter, d storage.Device, commit func() (sto
 	a.mu.Lock()
 	e, err := commit()
 	if err == nil {
-		for sub := range a.subs {
-			if sub.device.UserID == e.UserID && sub.device.ID != d.ID {
-				select {
-				case sub.events <- Event{"clipboard.updated", e.ID, d.ID}:
-				default:
-					close(sub.overflow)
-					delete(a.subs, sub)
-				}
-			}
-		}
+		a.publish(e.UserID, d.ID, Event{"clipboard.updated", e.ID, d.ID})
 	}
 	a.mu.Unlock()
 	if err != nil {
@@ -335,6 +320,21 @@ func (a *API) create(w http.ResponseWriter, d storage.Device, commit func() (sto
 	}
 	w.Header().Set("Location", "/v1/entries/"+e.ID)
 	write(w, 201, e)
+}
+
+// Caller holds mu so commits, delivery and subscription registration stay ordered.
+func (a *API) publish(userID, skipDeviceID string, event Event) {
+	for sub := range a.subs {
+		if sub.device.UserID != userID || sub.device.ID == skipDeviceID {
+			continue
+		}
+		select {
+		case sub.events <- event:
+		default:
+			close(sub.overflow)
+			delete(a.subs, sub)
+		}
+	}
 }
 
 func (a *API) uploadImage(w http.ResponseWriter, r *http.Request, d storage.Device, contentType string) {

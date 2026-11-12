@@ -1,6 +1,6 @@
 param(
     [string]$DevEcoHome = $env:DEVECO_HOME,
-    [ValidateSet('debug', 'release')][string]$BuildMode = 'debug'
+    [ValidateSet('debug', 'release')][string]$BuildMode = 'release'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -15,7 +15,8 @@ if ((Get-Item $signed).LastWriteTimeUtc -lt (Get-Item $unsigned).LastWriteTimeUt
 }
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-$destination = Join-Path $dist "PasteAnywhere-harmony-$BuildMode-signed.hap"
+$version = (Get-Content (Join-Path $root 'clients/harmony/AppScope/app.json5') -Raw | ConvertFrom-Json).app.versionName
+$destination = Join-Path $dist "PasteAnywhere-$version-harmony-$BuildMode-signed.hap"
 Copy-Item $signed $destination -Force
 $hash = (Get-FileHash $destination -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($destination))" | Set-Content "$destination.sha256" -Encoding utf8NoBOM

@@ -1,0 +1,27 @@
+# Local state, credentials and build outputs
+.vs/
+.idea/
+**/bin/
+**/obj/
+**/build/
+**/.hvigor/
+**/oh_modules/
+**/node_modules/
+**/local.properties
+**/build-profile.local.json5
+.local/
+data/
+dist/
+*.db
+*.db-shm
+*.db-wal
+*.db.attachments/
+*.p12
+*.p7b
+*.cer
+*.keystore
+*.hap
+*.ipa
+.env
+.env.*
+!.env.example

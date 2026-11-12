@@ -1,0 +1,7 @@
+{
+  "name": "paste-anywhere",
+  "version": "0.1.0",
+  "description": "Paste Anywhere platform capability probe",
+  "modelVersion": "6.0.0",
+  "dependencies": {}
+}

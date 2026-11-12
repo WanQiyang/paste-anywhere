@@ -1,0 +1,18 @@
+[Unit]
+Description=Paste Anywhere clipboard server
+After=network.target
+
+[Service]
+Type=simple
+User=paste-anywhere
+Group=paste-anywhere
+StateDirectory=paste-anywhere
+WorkingDirectory=/var/lib/paste-anywhere
+ExecStart=/opt/paste-anywhere/paste-anywhere serve -db /var/lib/paste-anywhere/clipboard.db -listen 127.0.0.1:8080
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

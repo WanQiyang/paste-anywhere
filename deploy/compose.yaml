@@ -1,0 +1,43 @@
+name: paste-anywhere
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    command:
+      - serve
+      - -db
+      - /data/clipboard.db
+      - -listen
+      - 0.0.0.0:8080
+      - -history
+      - "${HISTORY_LIMIT:-20}"
+      - -retention
+      - "${RETENTION:-168h}"
+      - -max-text
+      - "${MAX_TEXT_BYTES:-1048576}"
+      - -max-image
+      - "${MAX_IMAGE_BYTES:-16777216}"
+    volumes:
+      - clipboard_data:/data
+    stop_grace_period: 15s
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CLIPBOARD_DOMAIN: "${CLIPBOARD_DOMAIN:?Set CLIPBOARD_DOMAIN in deploy/.env}"
+      ACME_EMAIL: "${ACME_EMAIL:?Set ACME_EMAIL in deploy/.env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  clipboard_data:
+  caddy_data:
+  caddy_config:

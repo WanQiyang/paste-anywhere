@@ -1,0 +1,9 @@
+**
+!server/
+!server/**
+!deploy/
+!deploy/Dockerfile
+server/**/bin/
+server/**/data/
+server/**/*.db*
+server/**/*.exe

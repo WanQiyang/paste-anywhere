@@ -1,0 +1,7 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$CLIPBOARD_DOMAIN} {
+    reverse_proxy server:8080
+}

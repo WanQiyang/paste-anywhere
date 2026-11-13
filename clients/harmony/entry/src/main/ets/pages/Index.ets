@@ -114,7 +114,7 @@ struct Index {
   private previewText(index: number): string {
     if (index >= this.entries.length) { return '暂无内容'; }
     const entry = this.entries[index];
-    return entry.kind === 'image' ? '<image>' : entry.text.slice(0, 240).replace(/[\r\n\t]/g, ' ');
+    return entry.kind === 'image' ? '<图片>' : entry.text.slice(0, 240).replace(/[\r\n\t]/g, ' ');
   }
   private entryTime(index: number): string {
     if (index >= this.entries.length) { return ''; }

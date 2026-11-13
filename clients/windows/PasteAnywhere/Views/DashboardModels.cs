@@ -12,7 +12,7 @@ public record ClipboardCard(Entry? Entry, int Position)
 {
     public bool HasContent => Entry != null;
     public string Number => Position.ToString("00");
-    public string Preview => Entry == null ? "暂无内容" : Entry.Kind == "image" ? "<image>" :
+    public string Preview => Entry == null ? "暂无内容" : Entry.Kind == "image" ? "<图片>" :
         Entry.Text[..Math.Min(Entry.Text.Length, 240)].Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
     public string Time => Entry == null ? "" : DateTimeOffset.FromUnixTimeMilliseconds(Entry.CreatedAt).ToLocalTime().ToString("MM/dd HH:mm");
 }

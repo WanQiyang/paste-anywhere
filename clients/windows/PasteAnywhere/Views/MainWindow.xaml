@@ -82,6 +82,28 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="ClipboardActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="80" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="Background" Value="#F4F6FA" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="#B42318" />
+            <Setter Property="Background" Value="#FDEEEE" />
+            <Setter Property="BorderBrush" Value="#F5CACA" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FADADA" />
+                    <Setter Property="BorderBrush" Value="#ECAAAA" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#F5CACA" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="LoginButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="#245CDB" />
             <Setter Property="Foreground" Value="White" />
@@ -168,11 +190,11 @@
 
             <DockPanel Margin="0,28,0,12">
                 <Button x:Name="ClearButton" Content="清空" DockPanel.Dock="Right" Click="ClearClick" IsEnabled="False"
-                        Background="Transparent" BorderThickness="0" Foreground="#D14343" FontSize="12" Padding="8,0" Height="24" Margin="0,-4,-8,-4" />
-                <Button x:Name="ManualCopyButton" Content="手动复制" DockPanel.Dock="Right" Click="ManualCopyClick" IsEnabled="False"
-                        ToolTip="读取当前系统剪贴板并上传到在线剪贴板" Background="Transparent" BorderThickness="0" Foreground="#245CDB"
-                        FontSize="12" Padding="8,0" Height="24" Margin="0,-4,0,-4" />
-                <TextBlock Text="在线剪贴板" FontSize="12" FontWeight="Medium" Foreground="#7C899D" />
+                        Style="{StaticResource ClipboardActionButton}" Foreground="#D14343" />
+                <Button x:Name="PasteButton" Content="粘贴" DockPanel.Dock="Right" Click="PasteClick" IsEnabled="False"
+                        ToolTip="读取当前系统剪贴板并上传到在线剪贴板" Style="{StaticResource ClipboardActionButton}"
+                        Foreground="#245CDB" Margin="0,0,8,0" />
+                <TextBlock Text="在线剪贴板" FontSize="12" FontWeight="Medium" Foreground="#7C899D" VerticalAlignment="Center" />
             </DockPanel>
             <ItemsControl x:Name="ClipboardList">
                 <ItemsControl.ItemTemplate>

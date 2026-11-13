@@ -27,7 +27,7 @@ public partial class MainWindow : Window
     private System.Windows.Forms.NotifyIcon? tray;
     private System.Drawing.Icon? trayIcon;
     private readonly DispatcherTimer dashboardTimer = new() { Interval = TimeSpan.FromSeconds(5) };
-    private readonly DispatcherTimer holdTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    private readonly DispatcherTimer holdTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer dragTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(2.4) };
     private List<Entry> entries = [];
@@ -255,7 +255,7 @@ public partial class MainWindow : Window
     private void UpdateClearButton()
     {
         ClearButton.IsEnabled = connected && entries.Count > 0 && !clearing && !loggingOut && !capturing && !confirming;
-        ManualCopyButton.IsEnabled = connected && !clearing && !loggingOut && !capturing && !confirming;
+        PasteButton.IsEnabled = connected && !clearing && !loggingOut && !capturing && !confirming;
         LogoutButton.IsEnabled = !clearing && !loggingOut && !capturing && !confirming;
     }
     private bool ConfirmOperation(string message)
@@ -263,12 +263,11 @@ public partial class MainWindow : Window
         confirming = true; UpdateClearButton();
         try
         {
-            return System.Windows.MessageBox.Show(this, message, "Paste Anywhere",
-                MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.OK;
+            return new ConfirmationWindow(this, message).ShowDialog() == true;
         }
         finally { confirming = false; UpdateClearButton(); }
     }
-    private async void ManualCopyClick(object sender, RoutedEventArgs e)
+    private async void PasteClick(object sender, RoutedEventArgs e)
     {
         if (!connected) return;
         await UploadClipboard();
@@ -284,7 +283,7 @@ public partial class MainWindow : Window
     private async void ClearClick(object sender, RoutedEventArgs e)
     {
         if (client == null || clearing || loggingOut || capturing || confirming || !connected || entries.Count == 0) return;
-        if (!ConfirmOperation("确定清空在线剪贴板？\n将删除当前账号的全部在线内容，无法恢复。本机系统剪贴板不受影响。")) return;
+        if (!ConfirmOperation("确定清空在线剪贴板？")) return;
         if (client == null || !connected || entries.Count == 0) return;
         clearing = true; ClearButton.Content = "清空中…"; UpdateClearButton();
         var api = client; var ct = session.Token;
@@ -393,13 +392,16 @@ public partial class MainWindow : Window
     {
         if (e.LeftButton != MouseButtonState.Pressed || dragCard?.Entry == null || dragging || !connected) return;
         var delta = e.GetPosition(this) - dragOrigin;
-        if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        // Small pointer movements during a click should not consume the preview gesture.
+        if (Math.Abs(delta.X) < Math.Max(8, SystemParameters.MinimumHorizontalDragDistance) &&
+            Math.Abs(delta.Y) < Math.Max(8, SystemParameters.MinimumVerticalDragDistance)) return;
         BeginCardDrag();
     }
     private void BeginCardDrag()
     {
         holdTimer.Stop();
-        if (dragging || !connected || dragSource == null || dragCard?.Entry == null) return;
+        if (dragging || !connected || dragSource == null || !dragSource.IsMouseCaptured ||
+            dragCard?.Entry == null || System.Windows.Input.Mouse.LeftButton != MouseButtonState.Pressed) return;
         var source = dragSource;
         var layer = AdornerLayer.GetAdornerLayer(SurfaceRoot);
         didDrag = true; dragging = true;
@@ -507,7 +509,7 @@ public partial class MainWindow : Window
     private async void LogoutClick(object sender, RoutedEventArgs e)
     {
         if (loggingOut || clearing || capturing || confirming || client == null || settings == null) return;
-        if (!ConfirmOperation("确定登出当前设备？\n登出后将撤销本设备的登录凭证，再次使用需要重新配对。")) return;
+        if (!ConfirmOperation("确定登出当前设备？")) return;
         if (client == null || settings == null) return;
         loggingOut = true; LogoutButton.IsEnabled = false; UpdateClearButton();
         var api = client;

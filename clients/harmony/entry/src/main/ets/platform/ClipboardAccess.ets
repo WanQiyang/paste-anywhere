@@ -1,4 +1,4 @@
-import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
 import { fileIo as fs, fileUri } from '@kit.CoreFileKit';
@@ -13,12 +13,7 @@ export class ClipboardAccess {
   static async captureAndUpload(context: common.UIAbilityContext): Promise<void> {
     const generation = ++ClipboardAccess.generation;
     RemoteClipboard.incoming();
-    const permission = await abilityAccessCtrl.createAtManager().requestPermissionsFromUser(
-      context, ['ohos.permission.READ_PASTEBOARD']);
-    if (generation !== ClipboardAccess.generation) { return; }
-    if (permission.authResults.length !== 1 || permission.authResults[0] !== 0) {
-      throw new Error('请允许读取系统剪贴板后重试');
-    }
+    // Called directly from a successful PasteButton callback using its temporary authorization.
     // Read one snapshot; later clipboard changes do not replace this upload.
     const data = await pasteboard.getSystemPasteboard().getData();
     if (generation !== ClipboardAccess.generation) { return; }
@@ -57,8 +52,6 @@ export class ClipboardAccess {
       if (!text) { throw new Error('剪贴板为空，或不包含支持的文本或单张图片'); }
     }
     if (generation !== ClipboardAccess.generation) { return; }
-    AppStorage.setOrCreate('localText', text);
-    AppStorage.setOrCreate('localImage', uri);
     await RemoteClipboard.upload(text, uri);
   }
 
@@ -95,8 +88,6 @@ export class ClipboardAccess {
       if (generation !== ClipboardAccess.generation) {
         return;
       }
-      AppStorage.setOrCreate('localText', text);
-      AppStorage.setOrCreate('localImage', uri);
       try {
         AppStorage.setOrCreate('operationStatus', uri ? '正在上传图片…' : '正在上传文本…');
         await RemoteClipboard.upload(text, uri);

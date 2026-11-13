@@ -17,8 +17,8 @@ try {
     }
     & "$PSScriptRoot/clean-build.ps1" -IncludeOutputs
     & "$PSScriptRoot/check-server.ps1"
-    dotnet build clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -p:Version=$Version -p:CopyRetryCount=0
-    if ($LASTEXITCODE -ne 0) { throw 'Windows client build failed' }
+    & "$PSScriptRoot/check-windows.ps1"
+    & "$PSScriptRoot/check-harmony.ps1" -DevEcoHome $DevEcoHome
     & "$PSScriptRoot/package-server.ps1" -Version $Version
     & "$PSScriptRoot/package-windows.ps1" -Version $Version -FrameworkDependent
     & "$PSScriptRoot/package-harmony.ps1" -DevEcoHome $DevEcoHome -BuildMode release

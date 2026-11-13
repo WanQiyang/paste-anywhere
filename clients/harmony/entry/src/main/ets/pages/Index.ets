@@ -8,10 +8,9 @@ import { RemoteUser, RemoteEntry } from '../networking/RemoteTypes';
 @Entry
 @Component
 struct Index {
-  @StorageLink('localText') text: string = '';
-  @StorageLink('localImage') imageUri: string = '';
   @StorageLink('operationStatus') @Watch('statusChanged') status: string = '';
   @State busy: boolean = false;
+  @StorageLink('uploading') uploading: boolean = false;
   @StorageLink('serverAddress') server: string = '';
   @StorageLink('deviceName') deviceName: string = '';
   @StorageLink('accountName') account: string = '';
@@ -19,7 +18,6 @@ struct Index {
   @StorageLink('networkConnected') connected: boolean = false;
   @StorageLink('onlineDeviceCount') onlineDevices: number = -1;
   @StorageLink('remoteEntries') entries: RemoteEntry[] = [];
-  @StorageLink('pendingUpload') pendingUpload: boolean = false;
   @StorageLink('remoteUsers') users: RemoteUser[] = [];
   @State invite: string = '';
   @State dropUserId: string = '';
@@ -60,29 +58,21 @@ struct Index {
     finally { this.busy = false; }
   }
 
-  private async upload(): Promise<void> {
-    if (this.busy) { return; }
-    this.busy = true;
-    try { await RemoteClipboard.upload(this.text, this.imageUri); }
-    catch (error) { this.status = `上传失败：${error.message}`; }
-    finally { this.busy = false; }
-  }
-
   private async logout(): Promise<void> {
-    if (this.busy) { return; }
+    if (this.busy || this.uploading) { return; }
     this.busy = true;
     try {
-      if (!await this.confirmOperation('确认登出', '登出后将撤销本设备的登录凭证，再次使用需要重新配对。', '登出')) { return; }
+      if (!await this.confirmOperation('确定登出当前设备？', '登出')) { return; }
       await RemoteClipboard.logout();
       this.invite = ''; this.loginError = ''; this.focusedField = ''; this.dropUserId = '';
     } catch (error) { this.status = '登出失败，请检查连接后重试'; }
     finally { this.busy = false; }
   }
   private async clearClipboard(): Promise<void> {
-    if (this.busy || !this.connected || this.entries.length === 0) { return; }
+    if (this.busy || this.uploading || !this.connected || this.entries.length === 0) { return; }
     this.busy = true;
     try {
-      if (!await this.confirmOperation('清空在线剪贴板', '将删除当前账号的全部在线内容，无法恢复。本机系统剪贴板不受影响。', '清空')) { return; }
+      if (!await this.confirmOperation('确定清空在线剪贴板？', '清空')) { return; }
       if (!this.connected || this.entries.length === 0) { return; }
       await RemoteClipboard.clearClipboard();
     }
@@ -90,24 +80,24 @@ struct Index {
     finally { this.busy = false; }
   }
 
-  private async confirmOperation(title: string, message: string, action: string): Promise<boolean> {
+  private async confirmOperation(message: string, action: string): Promise<boolean> {
     try {
       const result = await this.getUIContext().getPromptAction().showDialog({
-        title: title, message: message,
+        message: message,
         buttons: [{ text: '取消', color: '#64738B' }, { text: action, color: '#D14343' }]
       });
       return result.index === 1;
     } catch (_) { return false; }
   }
 
-  private async manualCopy(): Promise<void> {
-    if (this.busy || !this.connected) { return; }
+  private async pasteAndUpload(): Promise<void> {
+    if (this.busy || this.uploading || !this.connected) { return; }
     this.busy = true;
     this.status = '正在读取系统剪贴板…';
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       await ClipboardAccess.captureAndUpload(context);
-    } catch (error) { this.status = `手动复制失败：${error.message}`; }
+    } catch (error) { this.status = `粘贴上传失败：${error.message}`; }
     finally { this.busy = false; }
   }
 
@@ -125,7 +115,8 @@ struct Index {
     if (this.busy || index >= this.entries.length) { return; }
     const entry = this.entries[index];
     const dialog = new CustomDialogController({
-      builder: EntryPreview({ entry: entry, previewHeight: Math.max(60, Math.min(320, this.pageHeight - 320)) }),
+      builder: EntryPreview({ entry: entry, previewHeight: Math.max(60, Math.min(320, this.pageHeight - 320)),
+        onClose: () => { dialog.close(); } }),
       alignment: DialogAlignment.Center,
       autoCancel: true
     });
@@ -149,7 +140,7 @@ struct Index {
           Button({ type: ButtonType.Normal }) {
             Image($r('app.media.logout')).width(22).height(22)
           }.width(40).height(40).borderRadius(10).backgroundColor(Color.Transparent)
-            .margin({ left: 12 }).enabled(!this.busy).accessibilityText('登出')
+            .margin({ left: 12 }).enabled(!this.busy && !this.uploading).accessibilityText('登出')
             .onClick(() => { void this.logout(); })
         }.width('100%').alignItems(VerticalAlign.Top)
 
@@ -180,13 +171,22 @@ struct Index {
         Row() {
           Text('在线剪贴板').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#7C899D')
           Blank()
-          Button('手动复制', { type: ButtonType.Normal }).fontSize(12).fontColor('#245CDB')
-            .backgroundColor(Color.Transparent).height(24).padding({ left: 8, right: 8 })
-            .enabled(this.connected && !this.busy)
-            .onClick(() => { void this.manualCopy(); })
-          Button('清空', { type: ButtonType.Normal }).fontSize(12).fontColor('#D14343')
-            .backgroundColor(Color.Transparent).height(24).padding({ left: 8, right: 0 })
-            .enabled(this.connected && !this.busy && this.entries.length > 0)
+          PasteButton({ text: PasteDescription.PASTE, buttonType: ButtonType.Normal })
+            .fontSize(14).fontColor('#245CDB').backgroundColor('#F4F6FA')
+            .width(80).height(36).borderRadius(7)
+            .padding({ left: 8, right: 8, top: 8, bottom: 8 })
+            .enabled(this.connected && !this.busy && !this.uploading)
+            .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+              if (result === PasteButtonOnClickResult.SUCCESS) {
+                void this.pasteAndUpload();
+              } else {
+                this.status = '未获得剪贴板临时授权，请重新点击粘贴';
+              }
+            })
+          Button('清空', { type: ButtonType.Normal }).fontSize(14).fontColor('#D14343')
+            .backgroundColor('#F4F6FA').width(80).height(36).borderRadius(7).padding(8)
+            .margin({ left: 8 })
+            .enabled(this.connected && !this.busy && !this.uploading && this.entries.length > 0)
             .onClick(() => { void this.clearClipboard(); })
         }.width('100%').margin({ top: this.compactLayout() ? 18 : 28, bottom: 12 })
         Column({ space: 9 }) {
@@ -217,10 +217,6 @@ struct Index {
               .onDragEnd(() => { RemoteClipboard.dragId = ''; this.dropUserId = ''; void RemoteClipboard.refresh(); })
           }, (index: number) => String(index))
         }.width('100%').layoutWeight(1).constraintSize({ maxHeight: 346 })
-        if (this.pendingUpload && (this.text || this.imageUri)) {
-          Button('重试上传').height(28).fontSize(12).fontColor('#245CDB').backgroundColor(Color.Transparent)
-            .enabled(!this.busy).onClick(() => { void this.upload(); })
-        }
       }.width('100%').constraintSize({ maxWidth: 520 }).layoutWeight(1)
         .padding({ left: 24, right: 24, top: this.compactLayout() ? 20 : 28, bottom: 12 })
   }

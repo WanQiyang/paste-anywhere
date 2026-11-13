@@ -22,6 +22,7 @@ public sealed class RemoteClient : IDisposable
     private readonly HttpClient http;
     private readonly Uri address;
     private readonly string token;
+    private readonly ImageDownloadCache images = new();
 
     public static Uri ValidateAddress(string server)
     {
@@ -68,22 +69,47 @@ public sealed class RemoteClient : IDisposable
         body.Headers.ContentType = new MediaTypeHeaderValue(image.Length >= 2 && image[0] == 0xFF && image[1] == 0xD8 ? "image/jpeg" : "image/png");
         return await Response<Entry>(await http.PostAsync("v1/entries", body, ct), ct);
     }
-    public async Task<byte[]> DownloadImage(Entry entry, CancellationToken ct)
+    public async Task<byte[]> DownloadImage(Entry entry, CancellationToken ct,
+        IProgress<(long Received, long Total)>? progress = null, bool reload = false)
     {
-        if (entry.Attachment == null || entry.Attachment.Size > 16 * 1024 * 1024) throw new IOException("图片元数据无效或超过 16 MiB");
-        using var response = await http.GetAsync($"v1/entries/{entry.Id}/content", HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        using var source = await response.Content.ReadAsStreamAsync(ct);
-        using var output = new MemoryStream();
-        var buffer = new byte[81920];
-        int count;
-        while ((count = await source.ReadAsync(buffer, ct)) > 0)
+        ct.ThrowIfCancellationRequested();
+        if (entry.Attachment == null || entry.Attachment.Size <= 0 || entry.Attachment.Size > 16 * 1024 * 1024)
+            throw new IOException("图片元数据无效或超过 16 MiB");
+        var key = $"{entry.Id}:{entry.Attachment.Id}";
+        if (reload) images.Forget(key);
+        else if (images.Get(key, entry.Attachment.Size) is { } cached)
         {
-            if (output.Length + count > 16 * 1024 * 1024) throw new IOException("图片超过 16 MiB");
-            output.Write(buffer, 0, count);
+            progress?.Report((cached.LongLength, entry.Attachment.Size));
+            return cached;
         }
-        if (output.Length != entry.Attachment.Size) throw new IOException("图片下载不完整");
-        return output.ToArray();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(75));
+        var transfer = deadline.Token;
+        try
+        {
+            progress?.Report((0, entry.Attachment.Size));
+            using var response = await http.GetAsync($"v1/entries/{entry.Id}/content", HttpCompletionOption.ResponseHeadersRead, transfer);
+            response.EnsureSuccessStatusCode();
+            using var source = await response.Content.ReadAsStreamAsync(transfer);
+            using var output = new MemoryStream();
+            var buffer = new byte[81920];
+            int count;
+            while ((count = await source.ReadAsync(buffer, transfer)) > 0)
+            {
+                if (output.Length + count > entry.Attachment.Size) throw new IOException("图片下载大小不符");
+                output.Write(buffer, 0, count);
+                progress?.Report((output.Length, entry.Attachment.Size));
+            }
+            if (output.Length != entry.Attachment.Size) throw new IOException("图片下载不完整");
+            transfer.ThrowIfCancellationRequested();
+            var bytes = output.ToArray();
+            images.Put(key, bytes);
+            return bytes;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IOException("图片下载超时，请重试");
+        }
     }
     public Task<Entry> Send(string id, string userId, CancellationToken ct = default) => Post<Entry>("v1/transfers", new { entryId = id, userId }, ct);
     private async Task<T> Post<T>(string path, object body, CancellationToken ct) => await Response<T>(await http.PostAsJsonAsync(path, body, ct), ct);
@@ -134,5 +160,5 @@ public sealed class RemoteClient : IDisposable
         }
         connectionChanged(false);
     }
-    public void Dispose() => http.Dispose();
+    public void Dispose() { http.Dispose(); images.Clear(); }
 }

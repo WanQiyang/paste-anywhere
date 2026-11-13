@@ -17,6 +17,7 @@ export class RemoteClipboard {
   private static newest: string = '0';
   private static clearedThrough: string = '0';
   private static incomingRevision: number = 0;
+  private static uploads: number = 0;
   private static dashboardRevision: number = 0;
   private static refreshing: boolean = false;
   private static refreshEpoch: number = -1;
@@ -126,6 +127,7 @@ export class RemoteClipboard {
     if (RemoteClipboard.active) { await RemoteClipboard.foreground(); }
   }
   static async logout(): Promise<void> {
+    if (RemoteClipboard.uploads > 0) { throw new Error('上传期间无法登出'); }
     const settings = RemoteClipboard.settings;
     if (!settings || RemoteClipboard.loggingOut) { return; }
     RemoteClipboard.loggingOut = true;
@@ -143,18 +145,13 @@ export class RemoteClipboard {
       RemoteClipboard.newest = '0'; RemoteClipboard.dragId = '';
       AppStorage.setOrCreate('accountName', ''); AppStorage.setOrCreate('accountId', '');
       AppStorage.setOrCreate('deviceName', ''); AppStorage.setOrCreate('serverAddress', '');
-      AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
       AppStorage.setOrCreate('operationStatus', '');
-      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('pendingUpload', false);
       AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
       AppStorage.setOrCreate<RemoteUser[]>('remoteUsers', []);
     } finally { RemoteClipboard.loggingOut = false; }
   }
   static incoming(): void {
     ++RemoteClipboard.incomingRevision;
-    AppStorage.setOrCreate('pendingUpload', true);
-    AppStorage.setOrCreate('remoteId', '');
-    AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
   }
   private static mergeEntry(entry: RemoteEntry): void {
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) { return; }
@@ -172,12 +169,9 @@ export class RemoteClipboard {
     ++RemoteClipboard.dashboardRevision;
     const entries = AppStorage.get<RemoteEntry[]>('remoteEntries') || [];
     AppStorage.setOrCreate('remoteEntries', entries.filter((entry: RemoteEntry) => newer(entry.id, through)));
-    const localId = AppStorage.get<string>('remoteId') || '';
-    if (!AppStorage.get<boolean>('pendingUpload') && (!localId || !newer(localId, through))) {
-      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
-    }
   }
   static async clearClipboard(): Promise<void> {
+    if (RemoteClipboard.uploads > 0) { throw new Error('上传期间无法清空'); }
     const settings = RemoteClipboard.settings;
     if (!settings) { throw new Error('请先配对'); }
     const event = JSON.parse(await RemoteClipboard.request(settings.server, settings.connection.token, '/v1/entries', http.RequestMethod.DELETE)) as RemoteEvent;
@@ -187,6 +181,16 @@ export class RemoteClipboard {
     void RemoteClipboard.refresh();
   }
   static async upload(text: string, uri: string = ''): Promise<void> {
+    ++RemoteClipboard.uploads;
+    AppStorage.setOrCreate('uploading', true);
+    ImageFiles.retain(uri);
+    try { await RemoteClipboard.submit(text, uri); }
+    finally {
+      ImageFiles.release(uri);
+      AppStorage.setOrCreate('uploading', --RemoteClipboard.uploads > 0);
+    }
+  }
+  private static async submit(text: string, uri: string): Promise<void> {
     const revision = RemoteClipboard.incomingRevision;
     const settings = RemoteClipboard.settings;
     if (!settings) { throw new Error('请先配对'); }
@@ -202,15 +206,9 @@ export class RemoteClipboard {
     const entry = JSON.parse(await RemoteClipboard.request(settings.server, settings.connection.token,
       '/v1/entries', http.RequestMethod.POST, bytes || JSON.stringify(body), contentType)) as RemoteEntry;
     if (settings !== RemoteClipboard.settings || revision !== RemoteClipboard.incomingRevision) { return; }
-    if (!newer(entry.id, RemoteClipboard.clearedThrough)) {
-      AppStorage.setOrCreate('pendingUpload', false);
-      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
-      return;
-    }
+    if (!newer(entry.id, RemoteClipboard.clearedThrough)) { return; }
     if (newer(entry.id, RemoteClipboard.newest)) { RemoteClipboard.newest = entry.id; }
     RemoteClipboard.mergeEntry(entry);
-    AppStorage.setOrCreate('pendingUpload', false);
-    AppStorage.setOrCreate('remoteId', entry.id);
     AppStorage.setOrCreate('operationStatus', '已上传');
     void RemoteClipboard.refresh();
   }
@@ -301,11 +299,12 @@ export class RemoteClipboard {
       }
     }
   }
-  static async prepare(entry: RemoteEntry): Promise<PreparedContent> {
+  static async prepare(entry: RemoteEntry, progress: (received: number, total: number) => void = () => {},
+    reload: boolean = false): Promise<PreparedContent> {
     const settings = RemoteClipboard.settings;
     if (!settings) { throw new Error('请先配对'); }
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) { throw new Error('内容已清空'); }
-    const uri = entry.kind === 'image' ? await ImageFiles.download(settings, entry, RemoteClipboard.cacheDir) : '';
+    const uri = entry.kind === 'image' ? await ImageFiles.download(settings, entry, RemoteClipboard.cacheDir, progress, reload) : '';
     if (settings !== RemoteClipboard.settings || RemoteClipboard.loggingOut) { throw new Error('配对状态已改变'); }
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) { throw new Error('内容已清空'); }
     const content: PreparedContent = { text: entry.text, uri: uri,

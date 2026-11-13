@@ -1,6 +1,5 @@
 {
   "string": [
-    { "name": "module_desc", "value": "在线剪贴板与系统分享" },
-    { "name": "clipboard_read_reason", "value": "用于点击手动复制时读取系统剪贴板，并上传到您的在线剪贴板" }
+    { "name": "module_desc", "value": "在线剪贴板与系统分享" }
   ]
 }

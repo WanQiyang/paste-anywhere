@@ -7,17 +7,14 @@ import { RemoteUser, RemoteEntry } from '../networking/RemoteTypes';
 export default class EntryAbility extends UIAbility {
   private foregroundActive: boolean = false;
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
-    AppStorage.setOrCreate('localText', '');
-    AppStorage.setOrCreate('localImage', '');
     AppStorage.setOrCreate('operationStatus', '');
-    AppStorage.setOrCreate('remoteId', '');
     AppStorage.setOrCreate('serverAddress', '');
     AppStorage.setOrCreate('deviceName', '');
     AppStorage.setOrCreate('accountName', '');
     AppStorage.setOrCreate('accountId', '');
     AppStorage.setOrCreate('networkConnected', false);
     AppStorage.setOrCreate('onlineDeviceCount', -1);
-    AppStorage.setOrCreate('pendingUpload', false);
+    AppStorage.setOrCreate('uploading', false);
     AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
     AppStorage.setOrCreate<RemoteUser[]>('remoteUsers', []);
     if (want.action === 'ohos.want.action.sendData') { RemoteClipboard.incoming(); }

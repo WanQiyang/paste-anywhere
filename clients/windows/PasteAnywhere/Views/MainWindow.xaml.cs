@@ -461,7 +461,7 @@ public partial class MainWindow : Window
         target.BorderThickness = new Thickness(2);
         target.Effect = new DropShadowEffect { Color = (Color)ColorConverter.ConvertFromString("#245CDB"), BlurRadius = 12, ShadowDepth = 0, Opacity = 0.18 };
     }
-    private async void CardMouseUp(object sender, MouseButtonEventArgs e)
+    private void CardMouseUp(object sender, MouseButtonEventArgs e)
     {
         var selected = dragCard;
         holdTimer.Stop();
@@ -470,13 +470,9 @@ public partial class MainWindow : Window
         RenderCards();
         if (didDrag || selected?.Entry is not { } entry || client == null) return;
         var api = client; var ct = session.Token;
-        try
-        {
-            var prepared = entry.Kind == "image" ? new ClipboardContent(null, await api.DownloadImage(entry, ct)) : new ClipboardContent(entry.Text, null);
-            if (ct.IsCancellationRequested || long.Parse(entry.Id) <= clearedThrough) return;
-            prepared.Write(); Status("已复制");
-        }
-        catch (Exception) { if (!ct.IsCancellationRequested) Status("复制失败，请重试"); }
+        var dialog = new EntryPreviewWindow(this, entry, api, ct,
+            () => !ct.IsCancellationRequested && long.Parse(entry.Id) > clearedThrough);
+        if (dialog.ShowDialog() == true) Status("已复制");
     }
     private void UserDragOver(object sender, System.Windows.DragEventArgs e)
     {

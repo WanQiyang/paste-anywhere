@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { ClientMetadata } from '../networking/ClientMetadata';
+import { EntryPreview } from './EntryPreview';
 import { ClipboardAccess } from '../platform/ClipboardAccess';
 import { RemoteClipboard } from '../services/RemoteClipboard';
 import { RemoteUser, RemoteEntry } from '../networking/RemoteTypes';
@@ -120,29 +121,15 @@ struct Index {
     const date = new Date(this.entries[index].createdAt);
     return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   }
-  private async entryActions(index: number): Promise<void> {
+  private entryActions(index: number): void {
     if (this.busy || index >= this.entries.length) { return; }
     const entry = this.entries[index];
-    let action = -1;
-    try {
-      const result = await this.getUIContext().getPromptAction().showActionMenu({
-        buttons: [{ text: '复制', color: '#245CDB' }, { text: '分享', color: '#245CDB' }]
-      });
-      action = result.index;
-    } catch (_) { return; }
-    this.busy = true;
-    try {
-      const content = await RemoteClipboard.prepare(entry);
-      if (action === 0) {
-        await ClipboardAccess.copy(content.text, content.uri);
-        this.status = entry.kind === 'image' ? '已写入剪贴板；图片粘贴取决于目标应用支持' : '已复制';
-      } else {
-        const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-        await ClipboardAccess.share(context, content.text, content.uri, content.utd);
-        this.status = '已打开分享';
-      }
-    } catch (error) { this.status = '操作失败，请重试'; }
-    finally { this.busy = false; }
+    const dialog = new CustomDialogController({
+      builder: EntryPreview({ entry: entry, previewHeight: Math.max(60, Math.min(320, this.pageHeight - 320)) }),
+      alignment: DialogAlignment.Center,
+      autoCancel: true
+    });
+    dialog.open();
   }
 
   @Builder
@@ -216,7 +203,7 @@ struct Index {
               .backgroundColor(index < this.entries.length ? Color.White : '#F0F3F8')
               .border({ width: 1, color: index < this.entries.length ? '#E7ECF4' : '#E9EDF4' })
               .opacity(index < this.entries.length ? 1 : 0.6)
-              .onClick(() => { void this.entryActions(index); })
+              .onClick(() => { this.entryActions(index); })
               .draggable(this.connected && !this.busy && index < this.entries.length)
               .dragPreviewOptions({
                 mode: [DragPreviewMode.ENABLE_DEFAULT_SHADOW, DragPreviewMode.ENABLE_DEFAULT_RADIUS],

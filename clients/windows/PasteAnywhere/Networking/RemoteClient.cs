@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text.Json;
+using PasteAnywhere.Platform;
 
 namespace PasteAnywhere.Networking;
 
@@ -35,6 +36,8 @@ public sealed class RemoteClient : IDisposable
         address = ValidateAddress(server);
         this.token = token;
         http = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(60) };
+        http.DefaultRequestHeaders.Add("X-Paste-Platform", "Windows");
+        http.DefaultRequestHeaders.Add("X-Paste-Version", AppVersion.Number);
         if (token.Length > 0) http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
     private static async Task<T> Response<T>(HttpResponseMessage response, CancellationToken ct)
@@ -104,6 +107,8 @@ public sealed class RemoteClient : IDisposable
                 ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
                 ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(5);
                 ws.Options.SetRequestHeader("Authorization", "Bearer " + token);
+                ws.Options.SetRequestHeader("X-Paste-Platform", "Windows");
+                ws.Options.SetRequestHeader("X-Paste-Version", AppVersion.Number);
                 var uri = new UriBuilder(new Uri(address, "v1/events")) { Scheme = address.Scheme == "https" ? "wss" : "ws" };
                 await ws.ConnectAsync(uri.Uri, ct);
                 var buffer = new byte[4096];

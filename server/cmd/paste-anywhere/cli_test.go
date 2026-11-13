@@ -15,6 +15,7 @@ import (
 func TestManagementCLI(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "cli.db")
 	t.Setenv("PASTE_ANYWHERE_DB", db)
+	t.Setenv("DISPLAY_TIMEZONE", "Asia/Shanghai")
 	run := func(args ...string) string {
 		t.Helper()
 		var out, diagnostics bytes.Buffer
@@ -34,7 +35,7 @@ func TestManagementCLI(t *testing.T) {
 	if strings.Contains(created, `"id"`) || account.User.Name != "ribo" || len(account.Invite) != 8 {
 		t.Fatal(created)
 	}
-	if result := run("user", "list"); result != "[\"ribo\"]\n" {
+	if result := run("user", "list"); !strings.Contains(result, "用户名") || !strings.Contains(result, "ribo") || !strings.Contains(result, "(+8)") {
 		t.Fatal(result)
 	}
 	s, err := storage.Open(db, 20, time.Hour)
@@ -46,8 +47,23 @@ func TestManagementCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := run("device", "list"); result != "[{\"name\":\"ribo-PC\",\"user\":\"ribo\",\"device\":\"PC\"}]\n" {
+	if result := run("device", "list"); !strings.Contains(result, "设备标识") || !strings.Contains(result, "ribo-PC") || !strings.Contains(result, "未知") {
 		t.Fatal(result)
+	}
+	previousInvite := account.Invite
+	reset := run("user", "reset", "ribo")
+	if err := json.Unmarshal([]byte(reset), &account); err != nil {
+		t.Fatal(err)
+	}
+	if account.User.Name != "ribo" || len(account.Invite) != 8 || account.Invite == previousInvite || strings.Contains(reset, `"id"`) {
+		t.Fatal(reset)
+	}
+	if _, err := s.Authenticate(token); err == nil {
+		t.Fatal("reset left a device authenticated")
+	}
+	_, _, token, err = s.Connect(account.Invite, "PC")
+	if err != nil {
+		t.Fatal(err)
 	}
 	run("device", "delete", "ribo-PC")
 	if _, err := s.Authenticate(token); err == nil {
@@ -61,13 +77,13 @@ func TestManagementCLI(t *testing.T) {
 	if _, err := s.Authenticate(token); err == nil {
 		t.Fatal("deleted user's device still authenticated")
 	}
-	if result := run("device", "list"); result != "[]\n" {
+	if result := run("device", "list"); strings.Count(result, "\n") != 1 || !strings.Contains(result, "设备标识") {
 		t.Fatal(result)
 	}
-	if result := run("user", "list"); result != "[]\n" {
+	if result := run("user", "list"); strings.Count(result, "\n") != 1 || !strings.Contains(result, "用户名") {
 		t.Fatal(result)
 	}
-	for _, args := range [][]string{{"user", "delete", "ribo"}, {"device", "delete", "ribo-PC"}} {
+	for _, args := range [][]string{{"user", "delete", "ribo"}, {"user", "reset", "ribo"}, {"device", "delete", "ribo-PC"}} {
 		if err := runCLI(args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Fatalf("missing target accepted: %v", args)
 		}
@@ -76,10 +92,10 @@ func TestManagementCLI(t *testing.T) {
 	other := filepath.Join(t.TempDir(), "other.db")
 	run("user", "create", "Other", "--db", other)
 	run("user", "create", "--db="+other, "Other2")
-	if result := run("user", "list", "--db", other); result != "[\"Other\",\"Other2\"]\n" {
+	if result := run("user", "list", "--db", other); strings.Count(result, "\n") != 3 || !strings.Contains(result, "Other ") || !strings.Contains(result, "Other2 ") {
 		t.Fatal(result)
 	}
-	if result := run("user", "list"); result != "[]\n" {
+	if result := run("user", "list"); strings.Count(result, "\n") != 1 || !strings.Contains(result, "用户名") {
 		t.Fatal("env database changed", result)
 	}
 }
@@ -88,7 +104,8 @@ func TestInvalidCLIHasNoDatabaseSideEffects(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "not-created.db")
 	t.Setenv("PASTE_ANYWHERE_DB", db)
 	for _, args := range [][]string{
-		{"user-create"}, {"user-reset"}, {"install"}, {"uninstall"}, {"user", "reset-code", "ribo"},
+		{"unknown"}, {"user", "unknown"}, {"user", "reset"},
+		{"user", "reset", "bad-name"}, {"user", "reset", "ribo", "extra"},
 		{"user", "create"}, {"user", "create", "bad-name"}, {"user", "create", "中文"},
 		{"device", "delete", "PC"}, {"device", "list", "extra"},
 		{"device", "delete", "ribo-PC-old"}, {"device", "delete", "ribo-中文"}, {"user", "delete", "旧用户"},

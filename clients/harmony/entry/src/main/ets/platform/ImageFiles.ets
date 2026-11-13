@@ -2,6 +2,7 @@ import { fileIo as fs, fileUri } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { http } from '@kit.NetworkKit';
 import { RemoteEntry, Settings } from '../networking/RemoteTypes';
+import { ClientMetadata } from '../networking/ClientMetadata';
 
 const MAX_BYTES: number = 16 * 1024 * 1024;
 
@@ -34,8 +35,7 @@ export class ImageFiles {
           }
           const packer = image.createImagePacker();
           try {
-            // Keep the API 12-compatible entry point until the minimum OS version is finalized.
-            const bytes = await packer.packing(source, { format: 'image/jpeg', quality: 95 });
+            const bytes = await packer.packToData(source, { format: 'image/jpeg', quality: 95 });
             if (bytes.byteLength > MAX_BYTES) { throw new Error('转换后的图片超过 16 MiB'); }
             return bytes;
           } finally { await packer.release(); }
@@ -55,7 +55,8 @@ export class ImageFiles {
     try {
       const result = await request.request(`${settings.server}/v1/entries/${entry.id}/content`, {
         method: http.RequestMethod.GET,
-        header: { 'Authorization': `Bearer ${settings.connection.token}` },
+        header: { 'Authorization': `Bearer ${settings.connection.token}`,
+          'X-Paste-Platform': 'HarmonyOS', 'X-Paste-Version': ClientMetadata.version() },
         expectDataType: http.HttpDataType.ARRAY_BUFFER,
         maxLimit: MAX_BYTES,
         connectTimeout: 10000,
@@ -88,13 +89,13 @@ export class ImageFiles {
       interface CachedFile { path: string; modified: number; }
       const files: CachedFile[] = [];
       for (const name of names) {
-        if (!/^(remote|probe)-[0-9-]+\.[a-zA-Z0-9]+$/.test(name)) { continue; }
+        if (!/^(remote|incoming)-[0-9-]+\.[a-zA-Z0-9]+$/.test(name)) { continue; }
         const path = `${cacheDir}/${name}`;
         const stat = await fs.stat(path);
         files.push({ path: path, modified: stat.mtime });
       }
       files.sort((a: CachedFile, b: CachedFile) => b.modified - a.modified);
-      const current = AppStorage.get<string>('probeImage') || '';
+      const current = AppStorage.get<string>('localImage') || '';
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         // A short grace period protects incoming shares and concurrent downloads.

@@ -96,7 +96,7 @@ func TestDatabaseEnforcesNameConstraints(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.db.Exec("INSERT INTO devices(id,user_id,name,token_hash) VALUES('other',?,'PC','other')", u.ID); err == nil {
+	if _, err := s.db.Exec("INSERT INTO devices(id,user_id,name,token_hash,created_at) VALUES('other',?,'PC','other',?)", u.ID, time.Now().UnixMilli()); err == nil {
 		t.Fatal("database accepted duplicate device name")
 	}
 }

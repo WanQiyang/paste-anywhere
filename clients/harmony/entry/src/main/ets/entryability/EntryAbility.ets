@@ -1,15 +1,15 @@
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
-import { ClipboardProbe } from '../platform/ClipboardProbe';
+import { ClipboardAccess } from '../platform/ClipboardAccess';
 import { RemoteClipboard } from '../services/RemoteClipboard';
 import { RemoteUser, RemoteEntry } from '../networking/RemoteTypes';
 
 export default class EntryAbility extends UIAbility {
   private foregroundActive: boolean = false;
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
-    AppStorage.setOrCreate('probeText', '');
-    AppStorage.setOrCreate('probeImage', '');
-    AppStorage.setOrCreate('probeStatus', '');
+    AppStorage.setOrCreate('localText', '');
+    AppStorage.setOrCreate('localImage', '');
+    AppStorage.setOrCreate('operationStatus', '');
     AppStorage.setOrCreate('remoteId', '');
     AppStorage.setOrCreate('serverAddress', '');
     AppStorage.setOrCreate('deviceName', '');
@@ -31,7 +31,7 @@ export default class EntryAbility extends UIAbility {
 
   private async receive(want: Want): Promise<void> {
     await RemoteClipboard.init(this.context);
-    await ClipboardProbe.receive(this.context, want);
+    await ClipboardAccess.receive(this.context, want);
   }
 
   onForeground(): void {

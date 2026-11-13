@@ -3,6 +3,7 @@ import { preferences } from '@kit.ArkData';
 import { http, webSocket } from '@kit.NetworkKit';
 import { Connection, RemoteEntry, RemoteEvent, RemoteUser, Settings, PreparedContent, newer } from '../networking/RemoteTypes';
 import { ImageFiles } from '../platform/ImageFiles';
+import { ClientMetadata } from '../networking/ClientMetadata';
 
 export class RemoteClipboard {
   private static initializing: Promise<void> | undefined;
@@ -39,7 +40,7 @@ export class RemoteClipboard {
         RemoteClipboard.settings = settings;
         RemoteClipboard.publishAccount(settings);
       }
-    } catch (error) { AppStorage.setOrCreate('probeStatus', '读取配对配置失败'); }
+    } catch (error) { AppStorage.setOrCreate('operationStatus', '读取配对配置失败'); }
   }
   private static publishAccount(settings: Settings): void {
     AppStorage.setOrCreate('serverAddress', settings.server);
@@ -69,7 +70,8 @@ export class RemoteClipboard {
     try {
       const result = await request.request(`${server}${path}`, {
         method: method,
-        header: { 'Content-Type': contentType, 'Authorization': `Bearer ${token}` },
+        header: { 'Content-Type': contentType, 'Authorization': `Bearer ${token}`,
+          'X-Paste-Platform': 'HarmonyOS', 'X-Paste-Version': ClientMetadata.version() },
         extraData: body,
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: 10000,
@@ -120,7 +122,7 @@ export class RemoteClipboard {
     RemoteClipboard.newest = '0'; RemoteClipboard.clearedThrough = '0';
     AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
     RemoteClipboard.publishAccount(settings);
-    AppStorage.setOrCreate('probeStatus', '');
+    AppStorage.setOrCreate('operationStatus', '');
     if (RemoteClipboard.active) { await RemoteClipboard.foreground(); }
   }
   static async logout(): Promise<void> {
@@ -141,8 +143,8 @@ export class RemoteClipboard {
       RemoteClipboard.newest = '0'; RemoteClipboard.dragId = '';
       AppStorage.setOrCreate('accountName', ''); AppStorage.setOrCreate('accountId', '');
       AppStorage.setOrCreate('deviceName', ''); AppStorage.setOrCreate('serverAddress', '');
-      AppStorage.setOrCreate('probeText', ''); AppStorage.setOrCreate('probeImage', '');
-      AppStorage.setOrCreate('probeStatus', '');
+      AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
+      AppStorage.setOrCreate('operationStatus', '');
       AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('pendingUpload', false);
       AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
       AppStorage.setOrCreate<RemoteUser[]>('remoteUsers', []);
@@ -152,7 +154,7 @@ export class RemoteClipboard {
     ++RemoteClipboard.incomingRevision;
     AppStorage.setOrCreate('pendingUpload', true);
     AppStorage.setOrCreate('remoteId', '');
-    AppStorage.setOrCreate('probeText', ''); AppStorage.setOrCreate('probeImage', '');
+    AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
   }
   private static mergeEntry(entry: RemoteEntry): void {
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) { return; }
@@ -172,7 +174,7 @@ export class RemoteClipboard {
     AppStorage.setOrCreate('remoteEntries', entries.filter((entry: RemoteEntry) => newer(entry.id, through)));
     const localId = AppStorage.get<string>('remoteId') || '';
     if (!AppStorage.get<boolean>('pendingUpload') && (!localId || !newer(localId, through))) {
-      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('probeText', ''); AppStorage.setOrCreate('probeImage', '');
+      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
     }
   }
   static async clearClipboard(): Promise<void> {
@@ -181,7 +183,7 @@ export class RemoteClipboard {
     const event = JSON.parse(await RemoteClipboard.request(settings.server, settings.connection.token, '/v1/entries', http.RequestMethod.DELETE)) as RemoteEvent;
     if (settings !== RemoteClipboard.settings) { return; }
     if (event.itemId) { RemoteClipboard.applyClear(event.itemId); }
-    AppStorage.setOrCreate('probeStatus', '已清空');
+    AppStorage.setOrCreate('operationStatus', '已清空');
     void RemoteClipboard.refresh();
   }
   static async upload(text: string, uri: string = ''): Promise<void> {
@@ -202,14 +204,14 @@ export class RemoteClipboard {
     if (settings !== RemoteClipboard.settings || revision !== RemoteClipboard.incomingRevision) { return; }
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) {
       AppStorage.setOrCreate('pendingUpload', false);
-      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('probeText', ''); AppStorage.setOrCreate('probeImage', '');
+      AppStorage.setOrCreate('remoteId', ''); AppStorage.setOrCreate('localText', ''); AppStorage.setOrCreate('localImage', '');
       return;
     }
     if (newer(entry.id, RemoteClipboard.newest)) { RemoteClipboard.newest = entry.id; }
     RemoteClipboard.mergeEntry(entry);
     AppStorage.setOrCreate('pendingUpload', false);
     AppStorage.setOrCreate('remoteId', entry.id);
-    AppStorage.setOrCreate('probeStatus', '已上传');
+    AppStorage.setOrCreate('operationStatus', '已上传');
     void RemoteClipboard.refresh();
   }
   static async foreground(): Promise<void> {
@@ -245,7 +247,8 @@ export class RemoteClipboard {
       socket.on('error', () => { RemoteClipboard.disconnected(epoch); });
       await socket.connect(settings.server.replace(/^http/, 'ws') + '/v1/events', {
         supportOriginPort: true,
-        header: { 'Authorization': `Bearer ${settings.connection.token}` }
+        header: { 'Authorization': `Bearer ${settings.connection.token}`,
+          'X-Paste-Platform': 'HarmonyOS', 'X-Paste-Version': ClientMetadata.version() }
       });
     } catch (error) { RemoteClipboard.disconnected(epoch); }
   }
@@ -290,7 +293,7 @@ export class RemoteClipboard {
           .filter((entry: RemoteEntry) => newer(entry.id, RemoteClipboard.clearedThrough)).slice(0, 5));
       } else { RemoteClipboard.refreshAgain = true; }
     } catch (error) {
-      if (epoch === RemoteClipboard.epoch) { AppStorage.setOrCreate('probeStatus', '暂时无法刷新，请稍后重试'); }
+      if (epoch === RemoteClipboard.epoch) { AppStorage.setOrCreate('operationStatus', '暂时无法刷新，请稍后重试'); }
     } finally {
       if (RemoteClipboard.refreshEpoch === epoch) {
         RemoteClipboard.refreshing = false;
@@ -322,8 +325,8 @@ export class RemoteClipboard {
         if (newer(entry.id, RemoteClipboard.newest)) { RemoteClipboard.newest = entry.id; }
         RemoteClipboard.mergeEntry(entry);
       }
-      AppStorage.setOrCreate('probeStatus', '已发送');
+      AppStorage.setOrCreate('operationStatus', '已发送');
       void RemoteClipboard.refresh();
-    } catch (error) { if (settings === RemoteClipboard.settings) { AppStorage.setOrCreate('probeStatus', '发送失败，请重试'); } }
+    } catch (error) { if (settings === RemoteClipboard.settings) { AppStorage.setOrCreate('operationStatus', '发送失败，请重试'); } }
   }
 }

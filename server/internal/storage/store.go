@@ -92,7 +92,7 @@ func (s *Store) CreateUser(name string) (User, string, error) {
 	}
 	for attempt := 0; attempt < 8; attempt++ {
 		invite := rand.Text()[:8]
-		result, err := s.db.Exec("INSERT INTO users(name,invite_hash) VALUES(?,?) ON CONFLICT(invite_hash) DO NOTHING", name, hash(invite))
+		result, err := s.db.Exec("INSERT INTO users(name,invite_hash,created_at) VALUES(?,?,?) ON CONFLICT(invite_hash) DO NOTHING", name, hash(invite), time.Now().UnixMilli())
 		if err != nil {
 			if strings.Contains(err.Error(), "users.name") {
 				return User{}, "", ErrNameExists
@@ -148,7 +148,7 @@ func (s *Store) Connect(invite, name string) (Device, User, string, error) {
 	}
 	token := secret()
 	device := Device{secret(), user.ID, name}
-	_, err = tx.Exec("INSERT INTO devices(id,user_id,name,token_hash) VALUES(?,?,?,?)", device.ID, user.ID, name, hash(token))
+	_, err = tx.Exec("INSERT INTO devices(id,user_id,name,token_hash,created_at) VALUES(?,?,?,?,?)", device.ID, user.ID, name, hash(token), time.Now().UnixMilli())
 	if err != nil {
 		if strings.Contains(err.Error(), "devices.user_id, devices.name") {
 			return Device{}, User{}, "", ErrNameExists

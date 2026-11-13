@@ -32,7 +32,11 @@ public sealed record ClipboardContent(string? Text, byte[]? Image)
             Decode(bytes);
             return new ClipboardContent(null, bytes);
         }
-        if (System.Windows.Clipboard.ContainsText()) return new ClipboardContent(System.Windows.Clipboard.GetText(), null);
+        if (System.Windows.Clipboard.ContainsText())
+        {
+            var text = System.Windows.Clipboard.GetText();
+            if (text.Length > 0) return new ClipboardContent(text, null);
+        }
         throw new IOException("当前剪贴板为空，或不包含支持的文本或单张图片");
     }
 

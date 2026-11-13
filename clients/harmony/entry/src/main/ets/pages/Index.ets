@@ -1,14 +1,15 @@
-import { common, bundleManager } from '@kit.AbilityKit';
-import { ClipboardProbe } from '../platform/ClipboardProbe';
+import { common } from '@kit.AbilityKit';
+import { ClientMetadata } from '../networking/ClientMetadata';
+import { ClipboardAccess } from '../platform/ClipboardAccess';
 import { RemoteClipboard } from '../services/RemoteClipboard';
 import { RemoteUser, RemoteEntry } from '../networking/RemoteTypes';
 
 @Entry
 @Component
 struct Index {
-  @StorageLink('probeText') text: string = '';
-  @StorageLink('probeImage') imageUri: string = '';
-  @StorageLink('probeStatus') @Watch('statusChanged') status: string = '';
+  @StorageLink('localText') text: string = '';
+  @StorageLink('localImage') imageUri: string = '';
+  @StorageLink('operationStatus') @Watch('statusChanged') status: string = '';
   @State busy: boolean = false;
   @StorageLink('serverAddress') server: string = '';
   @StorageLink('deviceName') deviceName: string = '';
@@ -27,9 +28,7 @@ struct Index {
   @State pageHeight: number = 800;
 
   aboutToAppear(): void {
-    try {
-      this.appVersion = `v ${bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT).versionName}`;
-    } catch (error) { console.error(`Read app version failed: ${error.message}`); }
+    this.appVersion = `v ${ClientMetadata.version()}`;
   }
 
   private compactLayout(): boolean { return this.pageHeight < 720; }
@@ -61,6 +60,7 @@ struct Index {
   }
 
   private async upload(): Promise<void> {
+    if (this.busy) { return; }
     this.busy = true;
     try { await RemoteClipboard.upload(this.text, this.imageUri); }
     catch (error) { this.status = `上传失败：${error.message}`; }
@@ -71,6 +71,7 @@ struct Index {
     if (this.busy) { return; }
     this.busy = true;
     try {
+      if (!await this.confirmOperation('确认登出', '登出后将撤销本设备的登录凭证，再次使用需要重新配对。', '登出')) { return; }
       await RemoteClipboard.logout();
       this.invite = ''; this.loginError = ''; this.focusedField = ''; this.dropUserId = '';
     } catch (error) { this.status = '登出失败，请检查连接后重试'; }
@@ -79,8 +80,33 @@ struct Index {
   private async clearClipboard(): Promise<void> {
     if (this.busy || !this.connected || this.entries.length === 0) { return; }
     this.busy = true;
-    try { await RemoteClipboard.clearClipboard(); }
+    try {
+      if (!await this.confirmOperation('清空在线剪贴板', '将删除当前账号的全部在线内容，无法恢复。本机系统剪贴板不受影响。', '清空')) { return; }
+      if (!this.connected || this.entries.length === 0) { return; }
+      await RemoteClipboard.clearClipboard();
+    }
     catch (_) { this.status = '清空失败，请重试'; }
+    finally { this.busy = false; }
+  }
+
+  private async confirmOperation(title: string, message: string, action: string): Promise<boolean> {
+    try {
+      const result = await this.getUIContext().getPromptAction().showDialog({
+        title: title, message: message,
+        buttons: [{ text: '取消', color: '#64738B' }, { text: action, color: '#D14343' }]
+      });
+      return result.index === 1;
+    } catch (_) { return false; }
+  }
+
+  private async manualCopy(): Promise<void> {
+    if (this.busy || !this.connected) { return; }
+    this.busy = true;
+    this.status = '正在读取系统剪贴板…';
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await ClipboardAccess.captureAndUpload(context);
+    } catch (error) { this.status = `手动复制失败：${error.message}`; }
     finally { this.busy = false; }
   }
 
@@ -108,11 +134,11 @@ struct Index {
     try {
       const content = await RemoteClipboard.prepare(entry);
       if (action === 0) {
-        await ClipboardProbe.copy(content.text, content.uri);
+        await ClipboardAccess.copy(content.text, content.uri);
         this.status = entry.kind === 'image' ? '已写入剪贴板；图片粘贴取决于目标应用支持' : '已复制';
       } else {
         const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-        await ClipboardProbe.share(context, content.text, content.uri, content.utd);
+        await ClipboardAccess.share(context, content.text, content.uri, content.utd);
         this.status = '已打开分享';
       }
     } catch (error) { this.status = '操作失败，请重试'; }
@@ -129,7 +155,7 @@ struct Index {
             Row({ space: 8 }) {
               Text('').width(8).height(8).borderRadius(4).backgroundColor(this.connected ? '#22A675' : '#DF6363')
                 .accessibilityText(this.connected ? '已连接' : '未连接')
-              Text(`${this.account}-${this.deviceName} (${this.onlineDevices >= 0 ? this.onlineDevices : '—'} 台在线)`).fontSize(13).fontColor('#7C899D')
+              Text(`${this.account}-${this.deviceName}${this.connected && this.onlineDevices >= 0 ? ` (${this.onlineDevices} 台在线)` : ''}`).fontSize(13).fontColor('#7C899D')
                 .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
             }.width('100%')
           }.alignItems(HorizontalAlign.Start).layoutWeight(1)
@@ -165,9 +191,13 @@ struct Index {
           .padding(12).backgroundColor(Color.White).borderRadius(18).border({ width: 1, color: '#E7ECF4' })
 
         Row() {
-          Text('剪贴板').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#7C899D')
+          Text('在线剪贴板').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#7C899D')
           Blank()
-          Button('清空', { type: ButtonType.Normal }).fontSize(12).fontColor('#7C899D')
+          Button('手动复制', { type: ButtonType.Normal }).fontSize(12).fontColor('#245CDB')
+            .backgroundColor(Color.Transparent).height(24).padding({ left: 8, right: 8 })
+            .enabled(this.connected && !this.busy)
+            .onClick(() => { void this.manualCopy(); })
+          Button('清空', { type: ButtonType.Normal }).fontSize(12).fontColor('#D14343')
             .backgroundColor(Color.Transparent).height(24).padding({ left: 8, right: 0 })
             .enabled(this.connected && !this.busy && this.entries.length > 0)
             .onClick(() => { void this.clearClipboard(); })

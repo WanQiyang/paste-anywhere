@@ -168,8 +168,11 @@
 
             <DockPanel Margin="0,28,0,12">
                 <Button x:Name="ClearButton" Content="清空" DockPanel.Dock="Right" Click="ClearClick" IsEnabled="False"
-                        Background="Transparent" BorderThickness="0" Foreground="#7C899D" FontSize="12" Padding="8,0" Height="24" Margin="0,-4,-8,-4" />
-                <TextBlock Text="剪贴板" FontSize="12" FontWeight="Medium" Foreground="#7C899D" />
+                        Background="Transparent" BorderThickness="0" Foreground="#D14343" FontSize="12" Padding="8,0" Height="24" Margin="0,-4,-8,-4" />
+                <Button x:Name="ManualCopyButton" Content="手动复制" DockPanel.Dock="Right" Click="ManualCopyClick" IsEnabled="False"
+                        ToolTip="读取当前系统剪贴板并上传到在线剪贴板" Background="Transparent" BorderThickness="0" Foreground="#245CDB"
+                        FontSize="12" Padding="8,0" Height="24" Margin="0,-4,0,-4" />
+                <TextBlock Text="在线剪贴板" FontSize="12" FontWeight="Medium" Foreground="#7C899D" />
             </DockPanel>
             <ItemsControl x:Name="ClipboardList">
                 <ItemsControl.ItemTemplate>

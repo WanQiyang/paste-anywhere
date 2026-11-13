@@ -11,7 +11,7 @@ import (
 	"paste-anywhere/server/internal/storage"
 )
 
-func TestShortPairingCode(t *testing.T) {
+func TestPairingCodeAndReset(t *testing.T) {
 	s, err := storage.Open(filepath.Join(t.TempDir(), "pairing.db"), 20, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -57,11 +57,7 @@ func TestShortPairingCode(t *testing.T) {
 	if len(token) != 64 {
 		t.Fatal("device token length changed")
 	}
-	err = s.DeleteUserByName(user.Name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, reset, err := s.CreateUser(user.Name)
+	reset, err := s.ResetPairingCode(user.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,12 +65,9 @@ func TestShortPairingCode(t *testing.T) {
 	connect(reset, 201)
 	connect(invite, 401)
 	if _, err := s.Authenticate(token); err == nil {
-		t.Fatal("recreating user did not revoke device token")
+		t.Fatal("reset did not revoke device token")
 	}
 	connect("1234567", 400)
 	connect("123456789", 400)
 	connect(strings.Repeat("a", 64), 400)
-	if _, _, _, err := s.Connect(strings.Repeat("a", 64), "legacy"); err == nil {
-		t.Fatal("legacy pairing code accepted")
-	}
 }

@@ -7,6 +7,8 @@ services:
     restart: unless-stopped
     environment:
       PASTE_ANYWHERE_DB: /data/clipboard.db
+      DISPLAY_TIMEZONE: "${DISPLAY_TIMEZONE:-Asia/Shanghai}"
+      TRUST_PROXY: "true"
     command:
       - serve
       - -listen

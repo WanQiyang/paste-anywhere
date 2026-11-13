@@ -29,7 +29,19 @@ func serve(s *storage.Store, listen string, maxText int, maxImage int) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	server := &http.Server{Addr: listen, Handler: httpapi.New(s, maxText, maxImage).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
+	api := httpapi.New(s, maxText, maxImage)
+	api.TrustProxy = os.Getenv("TRUST_PROXY") == "true"
+	if err := api.SavePresence(); err != nil {
+		return err
+	}
+	defer func() {
+		if err := s.ClearPresence(); err != nil {
+			log.Printf("clear presence: %v", err)
+		}
+	}()
+	presenceTick := time.NewTicker(time.Second)
+	defer presenceTick.Stop()
+	server := &http.Server{Addr: listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()
 	tick := time.NewTicker(time.Minute)
@@ -39,6 +51,10 @@ func serve(s *storage.Store, listen string, maxText int, maxImage int) error {
 		select {
 		case err := <-result:
 			return err
+		case <-presenceTick.C:
+			if err := api.SavePresence(); err != nil {
+				log.Printf("presence: %v", err)
+			}
 		case <-tick.C:
 			if err := s.Cleanup(); err != nil {
 				log.Printf("cleanup: %v", err)

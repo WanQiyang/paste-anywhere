@@ -17,6 +17,7 @@ import (
 const usage = `用法：
   paste-anywhere serve [选项]
   paste-anywhere user create <用户名> [--db 路径]
+  paste-anywhere user reset <用户名> [--db 路径]
   paste-anywhere user list [--db 路径]
   paste-anywhere user delete <用户名> [--db 路径]
   paste-anywhere device list [--db 路径]
@@ -24,8 +25,10 @@ const usage = `用法：
 
 用户名和设备名只能包含英文字母、数字，长度 1–128，区分大小写。
 设备名在同一用户内唯一。删除用户会删除其设备及收到的内容。
+重置配对码会撤销该用户全部设备，保留用户及在线内容。
 数据库默认读取 PASTE_ANYWHERE_DB，否则使用 data/paste-anywhere.db。
-管理输出为 JSON，不展示内部 ID。命令后加 --help 查看选项。
+list 输出为表格，其他管理输出为 JSON，不展示内部 ID。
+DISPLAY_TIMEZONE 配置时间显示时区，默认 Asia/Shanghai。命令后加 --help 查看选项。
 `
 
 func runCLI(args []string, out, errOut io.Writer) error {
@@ -45,7 +48,7 @@ func runCLI(args []string, out, errOut io.Writer) error {
 	wantArgs := 0
 	switch command {
 	case "serve", "user list", "device list":
-	case "user create", "user delete", "device delete":
+	case "user create", "user reset", "user delete", "device delete":
 		wantArgs = 1
 	default:
 		return fmt.Errorf("未知指令 %q；使用 --help 查看可用指令", command)
@@ -102,7 +105,7 @@ func runCLI(args []string, out, errOut io.Writer) error {
 	if len(positional) != wantArgs {
 		return fmt.Errorf("%s 需要 %d 个名称参数；使用 --help 查看用法", command, wantArgs)
 	}
-	if (command == "user create" || command == "user delete") && !storage.ValidName(positional[0]) {
+	if (command == "user create" || command == "user reset" || command == "user delete") && !storage.ValidName(positional[0]) {
 		return storage.ErrInvalidName
 	}
 	if command == "device delete" {
@@ -126,31 +129,27 @@ func runCLI(args []string, out, errOut io.Writer) error {
 	switch command {
 	case "serve":
 		return serve(s, listen, maxText, maxImage)
-	case "user create":
-		u, invite, err := s.CreateUser(positional[0])
+	case "user list":
+		return printManagement(out, s, false)
+	case "user create", "user reset":
+		var invite string
+		if command == "user create" {
+			_, invite, err = s.CreateUser(positional[0])
+		} else {
+			invite, err = s.ResetPairingCode(positional[0])
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("未找到指定的用户：%s", positional[0])
+		}
 		if err != nil {
 			return err
 		}
 		return encoder.Encode(struct {
 			User   map[string]string `json:"user"`
 			Invite string            `json:"invite"`
-		}{map[string]string{"name": u.Name}, invite})
-	case "user list":
-		users, err := s.Users()
-		if err != nil {
-			return err
-		}
-		names := make([]string, 0, len(users))
-		for _, u := range users {
-			names = append(names, u.Name)
-		}
-		return encoder.Encode(names)
+		}{map[string]string{"name": positional[0]}, invite})
 	case "device list":
-		devices, err := s.NamedDevices()
-		if err != nil {
-			return err
-		}
-		return encoder.Encode(devices)
+		return printManagement(out, s, true)
 	case "user delete":
 		err = s.DeleteUserByName(positional[0])
 	case "device delete":

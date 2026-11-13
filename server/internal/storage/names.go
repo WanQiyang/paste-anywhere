@@ -22,29 +22,6 @@ func ValidName(name string) bool {
 	return true
 }
 
-type NamedDevice struct {
-	Name   string `json:"name"`
-	User   string `json:"user"`
-	Device string `json:"device"`
-}
-
-func (s *Store) NamedDevices() ([]NamedDevice, error) {
-	rows, err := s.db.Query(`SELECT u.name || '-' || d.name,u.name,d.name FROM devices d JOIN users u ON u.id=d.user_id ORDER BY u.name,d.name,d.id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []NamedDevice{}
-	for rows.Next() {
-		var d NamedDevice
-		if err := rows.Scan(&d.Name, &d.User, &d.Device); err != nil {
-			return nil, err
-		}
-		result = append(result, d)
-	}
-	return result, rows.Err()
-}
-
 func (s *Store) DeleteUserByName(name string) error {
 	if !ValidName(name) {
 		return ErrInvalidName

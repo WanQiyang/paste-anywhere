@@ -6,8 +6,15 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
-    $harmonyVersion = (Get-Content clients/harmony/AppScope/app.json5 -Raw | ConvertFrom-Json).app.versionName
-    if ($Version -ne $harmonyVersion) { throw 'VERSION and HarmonyOS versionName must match before release' }
+    $versions = @(
+        (Get-Content VERSION -Raw).Trim()
+        (Get-Content clients/harmony/AppScope/app.json5 -Raw | ConvertFrom-Json).app.versionName
+        (Get-Content clients/harmony/oh-package.json5 -Raw | ConvertFrom-Json).version
+        (Get-Content clients/harmony/entry/oh-package.json5 -Raw | ConvertFrom-Json).version
+    )
+    if (@($versions | Where-Object { $_ -ne $Version }).Count -gt 0) {
+        throw 'VERSION and all HarmonyOS version names must match before release'
+    }
     & "$PSScriptRoot/clean-build.ps1" -IncludeOutputs
     & "$PSScriptRoot/check-server.ps1"
     dotnet build clients/windows/PasteAnywhere/PasteAnywhere.csproj -c Release -p:Version=$Version -p:CopyRetryCount=0

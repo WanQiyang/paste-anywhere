@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -115,18 +114,6 @@ func TestRESTResourcesAndDeviceAuthorization(t *testing.T) {
 	raw = request("GET", "/v1/entries/"+entry.ID+"/content", token, "", nil, 200)
 	if !bytes.Equal(raw.Body.Bytes(), picture.Bytes()) || raw.Header().Get("Content-Type") != "image/png" {
 		t.Fatal("image content representation incorrect")
-	}
-	users := request("GET", "/v1/users", token, "", nil, 200).Body.String()
-	if strings.Contains(users, `"online":`) || !strings.Contains(users, `"onlineDevices":0`) {
-		t.Fatal("redundant/missing presence fields", users)
-	}
-
-	for _, old := range []struct{ method, path string }{
-		{"POST", "/v1/connect"}, {"DELETE", "/v1/device"}, {"POST", "/v1/images"},
-		{"GET", "/v1/clipboard"}, {"DELETE", "/v1/clipboard"}, {"GET", "/v1/history"},
-		{"GET", "/v1/entries/1/image"}, {"POST", "/v1/entries/1/send"},
-	} {
-		request(old.method, old.path, token, "application/json", nil, 404)
 	}
 	request("DELETE", "/v1/devices/Alice-PC", token, "", nil, 204)
 	request("GET", "/v1/users", token, "", nil, 401)

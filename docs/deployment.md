@@ -1,49 +1,65 @@
-# VPS 部署（Docker Compose + Caddy）
+# 服务端部署
 
-需要 Linux VPS、Docker Engine 与 Compose 插件、指向 VPS 的域名，以及可访问的 80/443 端口。服务端的 Linux 支持不代表提供 Linux 客户端。
+需要 Linux VPS、Docker Engine/Compose、指向 VPS 的域名和开放的 80/443 端口。上传对应架构的服务端包并解压，或使用源码仓库；以下命令均在包含 `deploy/` 的目录执行。
 
-## 启动
-
-上传与 VPS 架构一致的 `paste-anywhere-版本-linux-amd64.tar.gz`（或 arm64）并解压，在包含 `deploy/` 的解压目录执行以下命令。包内已有静态程序，镜像构建仅复制文件，不需要 Go 环境。也可上传源码仓库，在仓库根目录执行相同命令，由多阶段 Dockerfile 编译。
+## 启动与配置
 
 ```sh
 cp deploy/.env.example deploy/.env
-# 编辑 deploy/.env，填写真实 CLIPBOARD_DOMAIN 和 ACME_EMAIL
+# 填写 CLIPBOARD_DOMAIN、ACME_EMAIL
 docker compose --project-directory deploy -f deploy/compose.yaml up -d --build
 docker compose --project-directory deploy -f deploy/compose.yaml logs --tail=50 server caddy
 ```
 
-Caddy 自动申请 HTTPS 证书并代理 HTTP / WebSocket。客户端地址为 `https://你的域名`，无需填写 `/v1`，也无需 HDC 端口转发。服务端 8080 端口仅供容器内部使用。
+分发包使用预编译程序，源码仓库使用多阶段编译。Caddy 自动签发 HTTPS 证书并代理 HTTP/WebSocket；客户端填写 `https://你的域名`。8080 不对外发布。
 
-Compose 使用持久卷 `paste-anywhere_clipboard_data` 保存数据库与附件；Caddy 证书也有独立持久卷。`.env` 中的限制对应服务启动参数，目前客户端图片上限仍为 16 MiB。
+| `.env` 配置 | 默认值 / 含义 |
+| --- | --- |
+| `CLIPBOARD_DOMAIN` | 必填，服务域名 |
+| `ACME_EMAIL` | 证书联系邮箱 |
+| `HISTORY_LIMIT` / `RETENTION` | 20 条 / 168h |
+| `MAX_TEXT_BYTES` / `MAX_IMAGE_BYTES` | 1048576 / 16777216 |
+| `DISPLAY_TIMEZONE` | Asia/Shanghai，CLI 时间显示时区 |
 
-## 用户和设备管理
+修改 `.env` 后执行 `up -d` 更新容器环境。客户端图片上限为 16 MiB，服务端像素上限为 4000 万。
 
-下列命令均在包含 `deploy/` 的目录执行。容器已设置 `PASTE_ANYWHERE_DB=/data/clipboard.db`，管理指令自动使用与服务相同的数据库：
+## 用户与设备
+
+容器设置 `PASTE_ANYWHERE_DB=/data/clipboard.db`，CLI 自动使用同一数据库。命令前缀为：
 
 ```sh
-docker compose --project-directory deploy -f deploy/compose.yaml exec server /paste-anywhere user create ribo
-docker compose --project-directory deploy -f deploy/compose.yaml exec server /paste-anywhere user list
-docker compose --project-directory deploy -f deploy/compose.yaml exec server /paste-anywhere device list
-docker compose --project-directory deploy -f deploy/compose.yaml exec server /paste-anywhere device delete ribo-PC
-docker compose --project-directory deploy -f deploy/compose.yaml exec server /paste-anywhere user delete ribo
+docker compose --project-directory deploy -f deploy/compose.yaml exec server /paste-anywhere user create Alice
 ```
 
-`user create` 返回用户名和 8 位配对码，例如 `{"user":{"name":"ribo"},"invite":"ABCD2345"}`。用户名和设备名仅允许英文字母、数字，长度 1–128，区分大小写；同一用户设备名唯一，重名配对返回 409。设备列表格式为 `[{"name":"ribo-PC","user":"ribo","device":"PC"}]`。
+将上例的 `user create Alice` 替换为所需操作：
 
-`device delete` 只撤销指定设备，删除后名称可再次配对。`user delete` 删除用户及其设备、收到的内容；更换配对码需删除重建，不提供重置命令。管理输出不展示内部 ID。
+| 命令 | 行为 |
+| --- | --- |
+| `user create Alice` | 创建用户，返回 `{ "user": { "name": "Alice" }, "invite": "配对码" }` |
+| `user list` | 用户表格 |
+| `user reset Alice` | 原子重置配对码并删除该用户全部设备，保留账号及在线内容，返回新码 |
+| `user delete Alice` | 删除用户、其设备和收到的内容 |
+| `device list` | 设备表格 |
+| `device delete Alice-PC` | 撤销设备，释放设备名 |
 
-仅支持当前数据库格式，不提供旧数据库、旧名称或旧配对码的兼容和迁移。首次部署使用空数据目录；如果数据卷来自此前测试版本，需清空旧服务端数据后重新创建用户并配对。当前格式的数据可以正常持久化并在重启后继续使用。
+用户名和设备名仅英文字母、数字，1–128 字符，区分大小写；设备名在用户内唯一。管理输出不展示内部 ID。配对码仅创建/重置时返回，服务端保存摘要。重置后的旧码及设备凭证失效，已连接 WebSocket 最迟在下一次凭证检查（每 20 秒）关闭。
 
-数据库、SQLite WAL/SHM 文件和 `clipboard.db.attachments/` 均位于 `/data` 持久卷。日志输出到容器标准输出/错误，通过 Compose 的 `logs` 查看。
+- 用户列：用户名、设备数、在线设备数、最近内容时间、创建时间。
+- 设备列：设备标识、平台、客户端版本、在线状态、最近 IP、最后活跃时间、配对时间。
+- 行按用户名、设备名先忽略大小写排序，再以大小写打破平局；数字按文本排序。
+- 时间如 `2026-11-13 18:30:00 (+8)`，支持 IANA 时区及夏令时；缺失信息为 `—`。最近内容时间只统计未过期保留内容。
+- 一个数据库对应一个服务进程。在线快照每秒更新，超过 10 秒未更新或正常停服后为“未知”，同设备多连接去重。最后活跃记录已鉴权请求及成功 WebSocket ping。
+- 平台/版本由客户端上报。Compose 设置 `TRUST_PROXY=true`，Caddy 覆盖 `X-Real-IP` 为连接来源；直接运行默认使用 TCP 对端 IP，仅在可信代理覆盖该头时启用代理模式。
 
-## 升级与备份
+直接运行 CLI 时可用 `--db` 或 `PASTE_ANYWHERE_DB` 指定数据库，用 `DISPLAY_TIMEZONE` 设置时区，`--help` 查看参数。
 
-升级使用同一个目录和 Compose 项目名执行 `up -d --build`，保留数据卷。普通停机使用 `down`，**不要使用 `down -v`，它会删除数据卷**。
+## 数据与进程
 
-0.2.0 沿用当前 REST 接口和数据库格式。替换部署包后执行 `up -d --build` 重建容器；更早仍使用旧路径的客户端需要一起更新。
+只支持空数据库或当前结构 `user_version=2`，不迁移其他格式。SQLite、WAL/SHM 与附件目录均保存在 `paste-anywhere_clipboard_data` 持久卷；Caddy 证书单独持久化。
 
-需要一致性备份时，先停止写入，再打包整个数据目录（包括 SQLite WAL 及附件）：
+使用 Compose `stop/start/restart` 管理容器，`up -d --build` 重建程序；`down` 保留数据，`down -v` 删除数据卷。
+
+一致性备份需停止写入并保存整个数据目录：
 
 ```sh
 mkdir -p backups
@@ -52,12 +68,4 @@ docker run --rm -v paste-anywhere_clipboard_data:/data:ro -v "$PWD/backups:/back
 docker compose --project-directory deploy -f deploy/compose.yaml start server
 ```
 
-如修改了 Compose 顶层 `name`，相应调整数据卷名称。恢复时停止服务，将备份解压到该卷并保留文件所有权，再启动。原账号凭证与历史只有在数据库和附件一起恢复时才完整。
-
-## 程序与进程管理
-
-程序仅提供 `serve` 前台运行及用户/设备管理，不包含安装、卸载、后台启停指令。通过 `docker compose --project-directory deploy -f deploy/compose.yaml stop/start/restart` 管理进程（选择其中一个子命令）；Caddy 管理证书和续期。
-
-## 验证边界
-
-仓库提供部署配置和可交叉编译的服务端；当前开发机没有 Docker，未实际执行 Docker 构建或 VPS HTTPS 签发。拿到 VPS 环境后需验证镜像拉取、端口、域名解析与证书签发，再进行公网端到端验收。
+恢复时停止服务，将当前格式备份解压到数据卷并保留文件所有权，再启动；数据库和附件必须一起恢复。更改 Compose 项目名时，相应更改卷名。

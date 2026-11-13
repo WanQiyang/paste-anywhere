@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private long newest;
     private long clearedThrough;
     private bool clearing;
+    private bool confirming;
     private int dashboardRevision;
     private bool refreshing;
     private bool refreshAgain;
@@ -236,7 +237,8 @@ public partial class MainWindow : Window
         if (settings == null) { UsersList.ItemsSource = null; return; }
         var self = settings.Connection.User;
         var count = connected ? users.FirstOrDefault(u => u.Id == self.Id)?.OnlineDevices : null;
-        AccountText.Text = $"{self.Name}-{settings.Connection.Device.Name} ({(count.HasValue ? count.Value.ToString() : "—")} 台在线)";
+        AccountText.Text = $"{self.Name}-{settings.Connection.Device.Name}" +
+            (connected && count.HasValue ? $" ({count.Value} 台在线)" : "");
         var cards = new List<UserCard> { new(self, true) };
         if (connected)
             cards.AddRange(users.Where(u => u.OnlineDevices > 0 && u.Id != self.Id)
@@ -252,8 +254,24 @@ public partial class MainWindow : Window
     }
     private void UpdateClearButton()
     {
-        ClearButton.IsEnabled = connected && entries.Count > 0 && !clearing && !loggingOut;
-        LogoutButton.IsEnabled = !clearing && !loggingOut;
+        ClearButton.IsEnabled = connected && entries.Count > 0 && !clearing && !loggingOut && !capturing && !confirming;
+        ManualCopyButton.IsEnabled = connected && !clearing && !loggingOut && !capturing && !confirming;
+        LogoutButton.IsEnabled = !clearing && !loggingOut && !capturing && !confirming;
+    }
+    private bool ConfirmOperation(string message)
+    {
+        confirming = true; UpdateClearButton();
+        try
+        {
+            return System.Windows.MessageBox.Show(this, message, "Paste Anywhere",
+                MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.OK;
+        }
+        finally { confirming = false; UpdateClearButton(); }
+    }
+    private async void ManualCopyClick(object sender, RoutedEventArgs e)
+    {
+        if (!connected) return;
+        await UploadClipboard();
     }
     private void ApplyClear(string? through)
     {
@@ -265,7 +283,9 @@ public partial class MainWindow : Window
     }
     private async void ClearClick(object sender, RoutedEventArgs e)
     {
-        if (client == null || clearing || !connected || entries.Count == 0) return;
+        if (client == null || clearing || loggingOut || capturing || confirming || !connected || entries.Count == 0) return;
+        if (!ConfirmOperation("确定清空在线剪贴板？\n将删除当前账号的全部在线内容，无法恢复。本机系统剪贴板不受影响。")) return;
+        if (client == null || !connected || entries.Count == 0) return;
         clearing = true; ClearButton.Content = "清空中…"; UpdateClearButton();
         var api = client; var ct = session.Token;
         try
@@ -339,8 +359,9 @@ public partial class MainWindow : Window
     }
     private async Task UploadClipboard()
     {
-        if (capturing || client == null || loggingOut) return;
+        if (capturing || client == null || loggingOut || clearing || confirming) return;
         capturing = true; var api = client; var ct = session.Token;
+        UpdateClearButton();
         try
         {
             var captured = ClipboardContent.Read();
@@ -350,8 +371,9 @@ public partial class MainWindow : Window
             newest = Math.Max(newest, long.Parse(entry.Id)); MergeEntry(entry);
             Status("已发送当前剪贴板"); _ = RefreshDashboard();
         }
+        catch (System.IO.IOException ex) { if (!ct.IsCancellationRequested) Status(ex.Message); }
         catch (Exception) { if (!ct.IsCancellationRequested) Status("上传失败，请检查连接后重试"); }
-        finally { capturing = false; }
+        finally { capturing = false; UpdateClearButton(); }
     }
     private void CardMouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -488,7 +510,9 @@ public partial class MainWindow : Window
     }
     private async void LogoutClick(object sender, RoutedEventArgs e)
     {
-        if (loggingOut || client == null || settings == null) return;
+        if (loggingOut || clearing || capturing || confirming || client == null || settings == null) return;
+        if (!ConfirmOperation("确定登出当前设备？\n登出后将撤销本设备的登录凭证，再次使用需要重新配对。")) return;
+        if (client == null || settings == null) return;
         loggingOut = true; LogoutButton.IsEnabled = false; UpdateClearButton();
         var api = client;
         try

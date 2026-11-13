@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,12 +35,13 @@ type subscription struct {
 	overflow chan struct{}
 }
 type API struct {
-	store     *storage.Store
-	maxText   int
-	maxImage  int
-	imageWork chan struct{}
-	mu        sync.Mutex // serializes commits, publish, and subscription start; no offline replay
-	subs      map[*subscription]bool
+	TrustProxy bool
+	store      *storage.Store
+	maxText    int
+	maxImage   int
+	imageWork  chan struct{}
+	mu         sync.Mutex // serializes commits, publish, and subscription start; no offline replay
+	subs       map[*subscription]bool
 }
 
 func New(store *storage.Store, maxText int, maxImage int) *API {
@@ -104,6 +106,10 @@ func (a *API) auth(next func(http.ResponseWriter, *http.Request, storage.Device)
 			}
 			return
 		}
+		if err := a.recordActivity(r, d.ID); err != nil {
+			a.internal(w, err)
+			return
+		}
 		next(w, r, d)
 	}
 }
@@ -136,6 +142,10 @@ func (a *API) createDevice(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		a.internal(w, e)
 		return
+	}
+	// Pairing has committed; metadata failure must not strand the new credential.
+	if err := a.recordActivity(r, d.ID); err != nil {
+		log.Printf("device metadata: %v", err)
 	}
 	w.Header().Set("Location", "/v1/devices/"+u.Name+"-"+d.Name)
 	write(w, 201, struct {
@@ -458,8 +468,53 @@ func (a *API) events(w http.ResponseWriter, r *http.Request, d storage.Device) {
 			if err != nil {
 				return
 			}
+			if err := a.store.TouchDevice(d.ID); err != nil {
+				log.Printf("device activity: %v", err)
+			}
 		}
 	}
+}
+
+func (a *API) recordActivity(r *http.Request, id string) error {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if a.TrustProxy {
+		if ip := net.ParseIP(r.Header.Get("X-Real-IP")); ip != nil {
+			host = ip.String()
+		}
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	} else {
+		host = ""
+	}
+	platform := r.Header.Get("X-Paste-Platform")
+	if platform != "Windows" && platform != "HarmonyOS" {
+		platform = ""
+	}
+	version := r.Header.Get("X-Paste-Version")
+	if len(version) > 64 {
+		version = ""
+	}
+	for _, c := range version {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '.' || c == '-' || c == '+') {
+			version = ""
+			break
+		}
+	}
+	return a.store.RecordActivity(id, platform, version, host)
+}
+
+func (a *API) SavePresence() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ids := make([]string, 0, len(a.subs))
+	for sub := range a.subs {
+		ids = append(ids, sub.device.ID)
+	}
+	return a.store.SavePresence(ids)
 }
 
 func sendEvent(ctx context.Context, c *websocket.Conn, e Event) bool {

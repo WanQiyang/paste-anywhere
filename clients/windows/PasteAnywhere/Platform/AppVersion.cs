@@ -2,12 +2,13 @@ namespace PasteAnywhere.Platform;
 
 public static class AppVersion
 {
-    public static string Display
+    public static string Number
     {
         get
         {
             var version = typeof(App).Assembly.GetName().Version!;
-            return $"v {version.Major}.{version.Minor}.{version.Build}";
+            return $"{version.Major}.{version.Minor}.{version.Build}";
         }
     }
+    public static string Display => $"v {Number}";
 }

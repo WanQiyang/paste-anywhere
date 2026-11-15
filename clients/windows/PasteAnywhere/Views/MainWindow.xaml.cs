@@ -21,6 +21,8 @@ public partial class MainWindow : Window
 {
     private RemoteClient? client;
     private Settings? settings;
+    private UserPreferences preferences = new();
+    private int clipboardRevision;
     private CancellationTokenSource session = new();
     private UploadShortcut? shortcut;
     private string shortcutText = "Ctrl+Win+Alt+C";
@@ -81,6 +83,8 @@ public partial class MainWindow : Window
             trayIcon = new System.Drawing.Icon(stream, 32, 32);
         tray = new System.Windows.Forms.NotifyIcon { Icon = trayIcon, Text = "Paste Anywhere", Visible = true, ContextMenuStrip = menu };
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowWindow);
+        try { preferences = UserPreferences.Load(); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Loading preferences failed: {0}", ex); Status("无法读取本机设置"); }
         try
         {
             settings = CredentialStore.Load();
@@ -92,6 +96,11 @@ public partial class MainWindow : Window
     }
 
     private void ShowWindow() { Show(); WindowState = WindowState.Normal; Activate(); }
+    private void Notify(string text)
+    {
+        try { tray?.ShowBalloonTip(5000, "Paste Anywhere", text, System.Windows.Forms.ToolTipIcon.Info); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Showing notification failed: {0}", ex); }
+    }
     private void Status(string text) => Dispatcher.Invoke(() =>
     {
         LoginStatus.Text = text;
@@ -119,8 +128,7 @@ public partial class MainWindow : Window
     }
     private void SetShortcut()
     {
-        if (shortcut?.Register(shortcutText) != true) { Status("快捷键注册失败，可能已被占用"); return; }
-        if (settings != null) { settings = settings with { Shortcut = shortcutText }; CredentialStore.Save(settings); }
+        if (shortcut?.Register(shortcutText) != true) Status("快捷键注册失败，可能已被占用");
     }
     private void ConfigureSettings()
     {
@@ -133,17 +141,22 @@ public partial class MainWindow : Window
             Text = shortcutText, Height = 42, Margin = new Thickness(0, 8, 0, 22),
             Style = (Style)FindResource(typeof(System.Windows.Controls.TextBox))
         };
-        var startup = new System.Windows.Controls.CheckBox { Content = "开机自启", IsChecked = startupEnabled, FontSize = 14 };
+        System.Windows.Controls.CheckBox Option(string label, bool enabled) => new()
+        {
+            Content = label, IsChecked = enabled, FontSize = 14, Margin = new Thickness(0, 0, 0, 18)
+        };
+        var startup = Option("开机时自动启动", startupEnabled);
+        var autoOverwrite = Option("自动覆盖系统剪贴板", preferences.AutoOverwriteClipboard);
+        var notifyUpload = Option("上传在线剪贴板成功时通知", preferences.NotifyUploadSuccess);
+        var notifyOverwrite = Option("系统剪贴板被覆盖时通知", preferences.NotifyClipboardOverwrite);
         var errorText = new TextBlock { Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B45353")),
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12), Visibility = Visibility.Collapsed };
         var save = new System.Windows.Controls.Button { Content = "保存", Height = 40, IsDefault = true, Style = (Style)FindResource("LoginButton") };
         var panel = new StackPanel { Margin = new Thickness(24) };
         panel.Children.Add(new TextBlock { Text = "设置", FontSize = 22, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 24) });
-        panel.Children.Add(new TextBlock { Text = "发送当前剪贴板", FontSize = 12, Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64738B")) });
+        panel.Children.Add(new TextBlock { Text = "快捷键：将系统剪贴板上传", FontSize = 14 });
         panel.Children.Add(input); panel.Children.Add(startup);
-        panel.Children.Add(new TextBlock { Text = "登录 Windows 后自动启动，仅显示托盘图标", FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7C899D")), TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(22, 8, 0, 24) });
+        panel.Children.Add(autoOverwrite); panel.Children.Add(notifyUpload); panel.Children.Add(notifyOverwrite);
         panel.Children.Add(errorText); panel.Children.Add(save);
         var dialog = new Window { Title = "Paste Anywhere", Owner = this, Width = 380, SizeToContent = SizeToContent.Height,
             Background = Background, Foreground = Foreground, FontFamily = FontFamily, FontSize = 13,
@@ -153,6 +166,7 @@ public partial class MainWindow : Window
             var previous = shortcutText;
             var previousSettings = settings;
             var credentialWritten = false;
+            var startupWritten = false;
             try
             {
                 var candidate = input.Text.Trim();
@@ -163,6 +177,16 @@ public partial class MainWindow : Window
                 var updated = settings == null ? null : settings with { Shortcut = candidate };
                 if (updated != null) { CredentialStore.Save(updated); credentialWritten = true; }
                 StartupRegistration.SetEnabled(startup.IsChecked == true);
+                startupWritten = true;
+                var updatedPreferences = new UserPreferences
+                {
+                    AutoOverwriteClipboard = autoOverwrite.IsChecked == true,
+                    NotifyUploadSuccess = notifyUpload.IsChecked == true,
+                    NotifyClipboardOverwrite = notifyOverwrite.IsChecked == true
+                };
+                updatedPreferences.Save();
+                if (preferences.AutoOverwriteClipboard != updatedPreferences.AutoOverwriteClipboard) ++clipboardRevision;
+                preferences = updatedPreferences;
                 settings = updated; shortcutText = candidate;
             }
             catch (Exception ex)
@@ -172,6 +196,7 @@ public partial class MainWindow : Window
                 try
                 {
                     shortcut?.Register(previous);
+                    if (startupWritten) StartupRegistration.SetEnabled(startupEnabled);
                     if (credentialWritten && previousSettings != null) CredentialStore.Save(previousSettings);
                 }
                 catch (Exception rollback) { System.Diagnostics.Trace.TraceError("Restoring settings failed: {0}", rollback); }
@@ -193,7 +218,7 @@ public partial class MainWindow : Window
             var device = DeviceName.Text.Trim();
             using var login = new RemoteClient(server, "");
             var connection = await login.Connect(Invite.Password.Trim(), device);
-            var value = new Settings(server, device, connection, shortcutText);
+            var value = new Settings(server, connection, shortcutText);
             CredentialStore.Save(value); settings = value; Invite.Clear();
             await StartSession(value); SetShortcut();
         }
@@ -337,28 +362,36 @@ public partial class MainWindow : Window
         if (ct.IsCancellationRequested || ev.Type != "clipboard.updated" || ev.SourceDeviceId == value.Connection.Device.Id ||
             !long.TryParse(ev.ItemId, out var id) || id <= newest) return;
         newest = id; ++dashboardRevision;
-        _ = Download(id, api, ct); _ = RefreshDashboard();
+        _ = Download(id, api, preferences.AutoOverwriteClipboard, clipboardRevision, ct); _ = RefreshDashboard();
     }
-    private async Task Download(long id, RemoteClient api, CancellationToken ct)
+    private async Task Download(long id, RemoteClient api, bool overwrite, int revision, CancellationToken ct)
     {
         try
         {
             var entry = await api.Get(id.ToString(), ct);
+            if (ct.IsCancellationRequested || id <= clearedThrough) return;
+            MergeEntry(entry);
+            if (!overwrite || revision != clipboardRevision || id != newest) return;
             var prepared = entry.Kind == "image" ? new ClipboardContent(null, await api.DownloadImage(entry, ct)) : new ClipboardContent(entry.Text, null);
             var bitmap = prepared.Image == null ? null : ClipboardContent.Decode(prepared.Image);
             for (int attempt = 0; attempt < 10; attempt++)
             {
-                if (ct.IsCancellationRequested || id != newest || id <= clearedThrough) return;
-                try { prepared.Write(bitmap); MergeEntry(entry); Status("已更新系统剪贴板"); return; }
+                if (ct.IsCancellationRequested || id != newest || id <= clearedThrough || revision != clipboardRevision) return;
+                try
+                {
+                    prepared.Write(bitmap); Status("已更新系统剪贴板");
+                    if (preferences.NotifyClipboardOverwrite) Notify("系统剪贴板已更新");
+                    return;
+                }
                 catch (COMException) when (attempt < 9) { await Task.Delay(100, ct); }
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { if (!ct.IsCancellationRequested && id == newest && id > clearedThrough) Status("接收失败，已保留本地剪贴板"); }
+        catch (Exception) { if (!ct.IsCancellationRequested && id == newest && id > clearedThrough && revision == clipboardRevision) Status("接收失败，已保留本地剪贴板"); }
     }
     private async Task UploadClipboard()
     {
-        if (capturing || client == null || loggingOut || clearing || confirming) return;
+        if (capturing || client == null || !connected || loggingOut || clearing || confirming) return;
         capturing = true; var api = client; var ct = session.Token;
         UpdateClearButton();
         try
@@ -369,6 +402,7 @@ public partial class MainWindow : Window
             if (ct.IsCancellationRequested || long.Parse(entry.Id) <= clearedThrough) return;
             newest = Math.Max(newest, long.Parse(entry.Id)); MergeEntry(entry);
             Status("已发送当前剪贴板"); _ = RefreshDashboard();
+            if (preferences.NotifyUploadSuccess) Notify("已成功上传在线剪贴板");
         }
         catch (System.IO.IOException ex) { if (!ct.IsCancellationRequested) Status(ex.Message); }
         catch (Exception) { if (!ct.IsCancellationRequested) Status("上传失败，请检查连接后重试"); }
@@ -474,7 +508,11 @@ public partial class MainWindow : Window
         var api = client; var ct = session.Token;
         var dialog = new EntryPreviewWindow(this, entry, api, ct,
             () => !ct.IsCancellationRequested && long.Parse(entry.Id) > clearedThrough);
-        if (dialog.ShowDialog() == true) Status("已复制");
+        if (dialog.ShowDialog() == true)
+        {
+            Status("已复制");
+            if (preferences.NotifyClipboardOverwrite) Notify("系统剪贴板已更新");
+        }
     }
     private void UserDragOver(object sender, System.Windows.DragEventArgs e)
     {

@@ -112,7 +112,7 @@ export class RemoteClipboard {
       }
     }
     catch (error) { throw new Error('服务器返回数据不正确。'); }
-    const settings: Settings = { server: server, deviceName: deviceName, connection: connection };
+    const settings: Settings = { server: server, connection: connection };
     if (!RemoteClipboard.prefs) { throw new Error('配置存储尚未初始化，请稍后重试。'); }
     try {
       await RemoteClipboard.prefs.put('settings', JSON.stringify(settings));

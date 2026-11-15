@@ -14,7 +14,7 @@ public record Connection(RemoteDevice Device, RemoteUser User, string Token);
 public record Attachment(string Id, string Name, string Mime, long Size, int Width, int Height);
 public record Entry(string Id, string UserId, string SenderId, string SourceDeviceId, string Kind, string Text, long CreatedAt, Attachment? Attachment = null);
 public record RemoteEvent(string Type, string? ItemId, string? SourceDeviceId);
-public record Settings(string Server, string DeviceName, Connection Connection, string Shortcut);
+public record Settings(string Server, Connection Connection, string Shortcut);
 
 public sealed class RemoteClient : IDisposable
 {

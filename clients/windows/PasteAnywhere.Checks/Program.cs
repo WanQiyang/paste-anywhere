@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -24,8 +25,28 @@ internal static class Program
     [STAThread]
     public static void Main()
     {
+        CheckPreferences();
         CheckClipboard();
         CheckDownloads().GetAwaiter().GetResult();
+    }
+
+    private static void CheckPreferences()
+    {
+        var defaults = JsonSerializer.Deserialize<UserPreferences>("{}")!;
+        Check(defaults.AutoOverwriteClipboard && defaults.NotifyUploadSuccess && defaults.NotifyClipboardOverwrite,
+            "Missing preference fields must default to enabled");
+        for (var mask = 0; mask < 8; mask++)
+        {
+            var preferences = new UserPreferences
+            {
+                AutoOverwriteClipboard = (mask & 1) != 0,
+                NotifyUploadSuccess = (mask & 2) != 0,
+                NotifyClipboardOverwrite = (mask & 4) != 0
+            };
+            Check(JsonSerializer.Deserialize<UserPreferences>(JsonSerializer.Serialize(preferences)) == preferences,
+                "Independent preference values must survive serialization, including disabled values");
+        }
+        Console.WriteLine("PASS: preference defaults and all independent persisted switch combinations.");
     }
 
     private static void CheckClipboard()

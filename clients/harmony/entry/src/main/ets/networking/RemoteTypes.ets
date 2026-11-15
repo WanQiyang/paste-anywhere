@@ -1,7 +1,7 @@
 export interface RemoteUser { id: string; name: string; onlineDevices?: number; }
 export interface RemoteDevice { id: string; userId: string; name: string; }
 export interface Connection { device: RemoteDevice; user: RemoteUser; token: string; }
-export interface Settings { server: string; deviceName: string; connection: Connection; }
+export interface Settings { server: string; connection: Connection; }
 export interface Attachment { id: string; name: string; mime: string; size: number; width: number; height: number; }
 export interface RemoteEntry {
   id: string;

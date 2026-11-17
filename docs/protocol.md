@@ -15,6 +15,7 @@
 | GET `/healthz` | 无鉴权 | `{ "status": "ok" }` |
 | POST `/v1/devices` | JSON `{ "invite": "...", "deviceName": "..." }` | 201，`{ device: {id,userId,name}, user: {id,name}, token }`；Location 为设备资源路径 |
 | DELETE `/v1/devices/{用户名}-{设备名}` | 当前设备鉴权，无请求体 | 204，撤销当前设备并关闭其连接，释放设备名；只允许删除当前凭证所属设备，其他设备返回 403 |
+| PUT `/v1/push-token` | 当前设备鉴权，JSON `{ "token": "Push Token" }` | 204，幂等替换当前设备的推送令牌；空字符串解除绑定；不得提交用户或设备 ID |
 | GET `/v1/users` | 设备鉴权 | 所有用户的 `{id,name,onlineDevices}` 数组，按设备 ID 去重统计活跃 WebSocket，在线数大于 0 即在线 |
 | GET `/v1/entries` | 设备鉴权，可选 `?limit=5` 或 `?limit=1` | 自己的有效记录数组，ID 降序，空时 `[]`；数量不超过服务配置，limit 必须是正整数 |
 | POST `/v1/entries` | `application/json` 的 `{ "text": "..." }`，或 `image/png` / `image/jpeg` 原始二进制 | 201，新条目；Location 为条目资源路径 |
@@ -108,4 +109,12 @@ CLI 与服务端使用同一个 SQLite 文件，命令和表格列见 [部署说
 
 客户端在配对、HTTP 请求及 WebSocket 握手中上报 `X-Paste-Platform`（`Windows` / `HarmonyOS`）及 `X-Paste-Version`（构建版本号）；这两个头可选，不参与鉴权。最近 IP 来自 TCP 对端；配置可信代理模式时读取代理覆盖的 `X-Real-IP`。
 
-只支持空数据库或当前结构（SQLite `user_version=2`），直接创建完整结构，不提供迁移。时间以 Unix 毫秒保存。数据库用 `CHECK` 限制名称格式，`UNIQUE(user_id,name)` 保证设备名唯一。
+只支持空数据库或当前结构（SQLite `user_version=3`），直接创建完整结构，不提供迁移。时间以 Unix 毫秒保存。数据库用 `CHECK` 限制名称格式，`UNIQUE(user_id,name)` 保证设备名唯一。
+
+## 鸿蒙系统推送
+
+Push Token 与登录设备凭证不同，服务端需要保存原始 Push Token 以调用华为接口，不在普通设备响应或日志中公开。登记请求必须包含字符串 `token`，缺失或 null 返回 400；仅显式空字符串解除绑定。令牌限 4096 字节可打印 ASCII、不得含空白；同一令牌仅属于一个设备，重新登记会解除旧归属。设备删除、用户删除及重置通过外键级联删除绑定，迟到登记不能复活被撤销设备。
+
+服务端配置 `HUAWEI_PUSH_KEY_FILE` 后，条目提交成功时向接收账号已登记的其他设备排队通知，包括图片和转发；不以 WebSocket 在线状态决定是否推送。客户端只使用 Push Kit 展示系统通知，避免 WebSocket 重复提醒。华为消息为 `push-type: 0`、`category: WORK`，前后台均可展示，标题为 Paste Anywhere，正文统一为“其他设备向在线剪贴板上传了新内容，点击查看。”，点击打开应用主界面。具体显示遵循系统通知权限与勿扰设置。
+
+推送异步串行发送，队列最多 128 个条目，满时放弃新通知并记录日志；进程重启不补发。排队超过 5 分钟不再发送，华为消息 TTL 为 300 秒。发送前复查条目及设备令牌归属。仅明确的临时服务错误最多尝试 3 次，间隔 1、2 秒；网络结果不明时不重发。同一条目使用相同 `notifyId`，重试覆盖同一通知。仅明确 `tokenFormatError` 删除对应旧令牌，权益或项目错误不误删令牌。已下发的通知不随条目清空或设备登出撤回；点击后始终按当前登录身份获取当前列表。

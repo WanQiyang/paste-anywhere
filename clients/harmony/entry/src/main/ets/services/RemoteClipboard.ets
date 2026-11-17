@@ -4,6 +4,7 @@ import { http, webSocket } from '@kit.NetworkKit';
 import { Connection, RemoteEntry, RemoteEvent, RemoteUser, Settings, PreparedContent, newer } from '../networking/RemoteTypes';
 import { ImageFiles } from '../platform/ImageFiles';
 import { ClientMetadata } from '../networking/ClientMetadata';
+import { HarmonyPush } from '../platform/HarmonyPush';
 
 export class RemoteClipboard {
   private static initializing: Promise<void> | undefined;
@@ -24,6 +25,9 @@ export class RemoteClipboard {
   private static refreshAgain: boolean = false;
   private static loggingOut: boolean = false;
   private static cacheDir: string = '';
+  private static context: common.UIAbilityContext | undefined;
+  private static pushBusy: boolean = false;
+  private static pushNext: number = 0;
   static dragId: string = '';
 
   static init(context: common.UIAbilityContext): Promise<void> {
@@ -31,6 +35,7 @@ export class RemoteClipboard {
     return RemoteClipboard.initializing;
   }
   private static async load(context: common.UIAbilityContext): Promise<void> {
+    RemoteClipboard.context = context;
     RemoteClipboard.cacheDir = context.cacheDir;
     void ImageFiles.prune(context.cacheDir);
     try {
@@ -120,6 +125,7 @@ export class RemoteClipboard {
     } catch (error) { throw new Error('无法保存设备凭证。'); }
     RemoteClipboard.stop();
     RemoteClipboard.settings = settings;
+    RemoteClipboard.pushNext = 0;
     RemoteClipboard.newest = '0'; RemoteClipboard.clearedThrough = '0';
     AppStorage.setOrCreate<RemoteEntry[]>('remoteEntries', []);
     RemoteClipboard.publishAccount(settings);
@@ -152,6 +158,14 @@ export class RemoteClipboard {
   }
   static incoming(): void {
     ++RemoteClipboard.incomingRevision;
+  }
+  static sessionAvailable(): () => boolean {
+    const settings = RemoteClipboard.settings;
+    return () => settings !== undefined && settings === RemoteClipboard.settings && !RemoteClipboard.loggingOut;
+  }
+  static entryAvailable(entry: RemoteEntry): () => boolean {
+    const sessionAvailable = RemoteClipboard.sessionAvailable();
+    return () => sessionAvailable() && newer(entry.id, RemoteClipboard.clearedThrough);
   }
   private static mergeEntry(entry: RemoteEntry): void {
     if (!newer(entry.id, RemoteClipboard.clearedThrough)) { return; }
@@ -213,8 +227,12 @@ export class RemoteClipboard {
     void RemoteClipboard.refresh();
   }
   static async foreground(): Promise<void> {
-    if (!RemoteClipboard.active) { void ImageFiles.prune(RemoteClipboard.cacheDir); }
+    if (!RemoteClipboard.active) {
+      void ImageFiles.prune(RemoteClipboard.cacheDir);
+      RemoteClipboard.pushNext = 0;
+    }
     RemoteClipboard.active = true;
+    void RemoteClipboard.registerPush();
     const settings = RemoteClipboard.settings;
     if (!settings || RemoteClipboard.socket || RemoteClipboard.loggingOut) { return; }
     const epoch = ++RemoteClipboard.epoch;
@@ -229,7 +247,7 @@ export class RemoteClipboard {
             AppStorage.setOrCreate('networkConnected', true);
             void RemoteClipboard.refresh();
             if (RemoteClipboard.poll !== -1) { clearInterval(RemoteClipboard.poll); }
-            RemoteClipboard.poll = setInterval(() => { void RemoteClipboard.refresh(); }, 5000);
+            RemoteClipboard.poll = setInterval(() => { void RemoteClipboard.refresh(); void RemoteClipboard.registerPush(); }, 5000);
           } else if (event.type === 'clipboard.cleared' && event.itemId) {
             RemoteClipboard.applyClear(event.itemId);
             void RemoteClipboard.refresh();
@@ -269,6 +287,32 @@ export class RemoteClipboard {
   static background(): void {
     RemoteClipboard.active = false;
     RemoteClipboard.stop();
+  }
+  private static async registerPush(): Promise<void> {
+    const settings = RemoteClipboard.settings;
+    const context = RemoteClipboard.context;
+    const prefs = RemoteClipboard.prefs;
+    if (!settings || !context || !prefs || !RemoteClipboard.active || RemoteClipboard.loggingOut ||
+      RemoteClipboard.pushBusy || Date.now() < RemoteClipboard.pushNext) { return; }
+    RemoteClipboard.pushBusy = true;
+    RemoteClipboard.pushNext = Date.now() + 60000;
+    try {
+      const prompted = await prefs.get('pushPermissionRequested', false) as boolean;
+      if (!RemoteClipboard.active || settings !== RemoteClipboard.settings || RemoteClipboard.loggingOut) { return; }
+      if (!prompted) {
+        await prefs.put('pushPermissionRequested', true);
+        await prefs.flush();
+      }
+      const token = await HarmonyPush.token(context, !prompted);
+      if (!RemoteClipboard.active || settings !== RemoteClipboard.settings || RemoteClipboard.loggingOut) { return; }
+      interface PushBody { token: string; }
+      const body: PushBody = { token: token };
+      await RemoteClipboard.request(settings.server, settings.connection.token, '/v1/push-token',
+        http.RequestMethod.PUT, JSON.stringify(body));
+      if (settings === RemoteClipboard.settings) { RemoteClipboard.pushNext = Date.now() + 300000; }
+    } catch (_) {
+      console.warn('PasteAnywhere push registration failed; will retry');
+    } finally { RemoteClipboard.pushBusy = false; }
   }
   static async refresh(): Promise<void> {
     const settings = RemoteClipboard.settings;

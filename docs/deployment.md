@@ -55,7 +55,7 @@ docker compose --project-directory deploy -f deploy/compose.yaml exec server /pa
 
 ## 数据与进程
 
-只支持空数据库或当前结构 `user_version=2`，不迁移其他格式。SQLite、WAL/SHM 与附件目录均保存在 `paste-anywhere_clipboard_data` 持久卷；Caddy 证书单独持久化。
+只支持空数据库或当前结构 `user_version=3`，不迁移其他格式。SQLite、WAL/SHM 与附件目录均保存在 `paste-anywhere_clipboard_data` 持久卷；Caddy 证书单独持久化。
 
 使用 Compose `stop/start/restart` 管理容器，`up -d --build` 重建程序；`down` 保留数据，`down -v` 删除数据卷。
 
@@ -69,3 +69,18 @@ docker compose --project-directory deploy -f deploy/compose.yaml start server
 ```
 
 恢复时停止服务，将当前格式备份解压到数据卷并保留文件所有权，再启动；数据库和附件必须一起恢复。更改 Compose 项目名时，相应更改卷名。
+
+## Push Kit（可选）
+
+1. AGC 应用 `com.ribo.pasteanywhere` 开通推送服务、自分类「工作事项提醒」（`WORK`），配置实际安装包的签名公钥指纹。工程 Client ID 为 `6917621976564647397`。
+2. 在开发者联盟 API Console 创建应用所属项目的服务账号凭证，选择具备推送权限的「开发」角色，生成并下载 JSON。服务端需要 `project_id`、`key_id`、`sub_account`、PKCS8 RSA `private_key`。接口 URL 使用项目 ID，不是 App ID；JWT 使用 PS256，服务器时间需要准确。
+3. 将 JSON 放在服务器私有目录，在 `deploy/.env` 设置 `HUAWEI_PUSH_KEY_HOST_FILE=/绝对路径/huawei-push.json`。容器以 UID/GID `65532:65532` 运行，文件需允许该用户读取（例如文件所有者设为 `65532:65532`，权限 `0400`）。仅服务端读取，不放入客户端或仓库。
+4. 启用附加 Compose 配置：
+
+```sh
+docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.push.yaml up -d --build
+```
+
+后续更新容器时继续带上两个 `-f`。密钥只读挂载到 `/run/secrets/huawei-push.json`，镜像包含用于校验华为 HTTPS 连接的系统根证书。启动日志出现 `HarmonyOS Push Kit enabled` 表示配置已加载，不代表真机推送已验证。密钥无效时启动失败；更新密钥后重启服务。直接运行程序可设置 `HUAWEI_PUSH_KEY_FILE` 为程序可读取的文件路径，不设置则关闭发送功能。
+
+手机配对并允许通知后自动登记 Push Token；可在系统设置修改通知权限，回到应用重新同步。发送失败日志记录 HTTP 状态及华为业务响应码，不打印令牌、私钥或剪贴板正文。鉴权/权益错误应核对项目、角色、`WORK` 权益及系统时间；推送成功仅表示华为接收请求，实际送达需真机验证。

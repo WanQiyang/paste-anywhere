@@ -32,10 +32,14 @@ try {
         if (!$localProfile.app.signingConfigs.Count) { throw 'Local HarmonyOS signing configuration is missing' }
         $originalProfile = [IO.File]::ReadAllBytes($profilePath)
         $profile = Get-Content $profilePath -Raw | ConvertFrom-Json
+        if ($profile.app.signingConfigs.Count) { throw 'Move signing secrets out of the public build-profile.json5 into build-profile.local.json5' }
         $profile.app.signingConfigs = $localProfile.app.signingConfigs
         foreach ($product in $profile.app.products) {
             $localProduct = $localProfile.app.products | Where-Object { $_.name -eq $product.name }
             if (!$localProduct.signingConfig) { throw "No local signing configuration for product $($product.name)" }
+            if (!($localProfile.app.signingConfigs | Where-Object { $_.name -eq $localProduct.signingConfig })) {
+                throw "Referenced local signing configuration not found for product $($product.name)"
+            }
             $product | Add-Member -NotePropertyName signingConfig -NotePropertyValue $localProduct.signingConfig -Force
         }
         $profile | ConvertTo-Json -Depth 30 | Set-Content $profilePath -Encoding utf8NoBOM

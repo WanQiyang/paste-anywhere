@@ -1,0 +1,11 @@
+services:
+  server:
+    environment:
+      HUAWEI_PUSH_KEY_FILE: /run/secrets/huawei-push.json
+    volumes:
+      - type: bind
+        source: ${HUAWEI_PUSH_KEY_HOST_FILE:?Set an absolute service account JSON path}
+        target: /run/secrets/huawei-push.json
+        read_only: true
+        bind:
+          create_host_path: false

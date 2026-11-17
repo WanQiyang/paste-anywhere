@@ -8,6 +8,7 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/paste-anywhere ./cmd/paste-anywh
     && mkdir -p /out/data && touch /out/data/.keep
 
 FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/paste-anywhere /paste-anywhere
 COPY --from=build --chown=65532:65532 /out/data/ /data/
 USER 65532:65532

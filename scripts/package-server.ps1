@@ -26,7 +26,7 @@ try {
     New-Item -ItemType Directory -Path $deploy, (Join-Path $folder '.container-data') | Out-Null
     New-Item -ItemType File -Path (Join-Path $folder '.container-data/.keep') | Out-Null
     Copy-Item (Join-Path $root 'deploy/Dockerfile.binary') (Join-Path $deploy 'Dockerfile')
-    foreach ($file in @('compose.yaml', 'Caddyfile', '.env.example')) {
+    foreach ($file in @('compose.yaml', 'compose.push.yaml', 'Caddyfile', '.env.example')) {
         Copy-Item (Join-Path $root "deploy/$file") $deploy
     }
     Copy-Item (Join-Path $root 'docs/deployment.md') (Join-Path $folder 'README.md')

@@ -79,6 +79,7 @@ export class ImageFiles {
     ImageFiles.downloads.delete(key);
     const request = http.createHttp();
     let timer: number = -1;
+    let incomplete: string = '';
     try {
       const bytes = new ArrayBuffer(attachment.size);
       let received = 0;
@@ -109,6 +110,7 @@ export class ImageFiles {
       const extension = attachment.mime === 'image/png' ? '.png' : '.jpg';
       const path = `${cacheDir}/remote-${Date.now()}-${++ImageFiles.sequence}${extension}`;
       const file = await fs.open(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      incomplete = path;
       try {
         let offset = 0;
         while (offset < bytes.byteLength) {
@@ -117,6 +119,7 @@ export class ImageFiles {
           offset += count;
         }
       } finally { await fs.close(file); }
+      incomplete = '';
       ImageFiles.downloads.set(key, path);
       if (ImageFiles.downloads.size > 20) {
         for (const oldest of ImageFiles.downloads.keys()) {
@@ -126,7 +129,11 @@ export class ImageFiles {
       }
       return fileUri.getUriFromPath(path);
     } catch (error) { throw new Error(`图片下载失败：${error.message}`); }
-    finally { if (timer !== -1) { clearTimeout(timer); } request.destroy(); }
+    finally {
+      if (timer !== -1) { clearTimeout(timer); }
+      request.destroy();
+      if (incomplete) { try { await fs.unlink(incomplete); } catch (_) { } }
+    }
   }
 
   static async prune(cacheDir: string): Promise<void> {

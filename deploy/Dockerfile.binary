@@ -1,5 +1,9 @@
 # Runtime-only image for the precompiled Linux release package.
+FROM alpine:3 AS certificates
+RUN apk add --no-cache ca-certificates
+
 FROM scratch
+COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --chmod=755 paste-anywhere /paste-anywhere
 COPY --chown=65532:65532 .container-data/ /data/
 USER 65532:65532

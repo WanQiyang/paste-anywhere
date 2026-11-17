@@ -50,13 +50,14 @@ export struct EntryPreview {
   private async act(share: boolean): Promise<void> {
     if (this.closed || this.working || this.loading) { return; }
     this.working = true;
+    const available = RemoteClipboard.entryAvailable(this.entry);
     try {
       const content = await RemoteClipboard.prepare(this.entry);
-      if (this.closed) { return; }
+      if (this.closed || !available()) { return; }
       if (share) {
         const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
         await ClipboardAccess.share(context, content.text, content.uri, content.utd);
-      } else { await ClipboardAccess.copy(content.text, content.uri); }
+      } else { await ClipboardAccess.copy(content.text, content.uri, () => !this.closed && available()); }
       if (this.closed) { return; }
       this.getUIContext().getPromptAction().showToast({ message: share ? '已打开分享' : '已复制', duration: 2000 });
       this.close();

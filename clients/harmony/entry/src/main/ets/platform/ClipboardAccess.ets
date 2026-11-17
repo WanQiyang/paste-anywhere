@@ -11,12 +11,13 @@ export class ClipboardAccess {
   private static generation: number = 0;
 
   static async captureAndUpload(context: common.UIAbilityContext): Promise<void> {
+    const available = RemoteClipboard.sessionAvailable();
     const generation = ++ClipboardAccess.generation;
     RemoteClipboard.incoming();
     // Called directly from a successful PasteButton callback using its temporary authorization.
     // Read one snapshot; later clipboard changes do not replace this upload.
     const data = await pasteboard.getSystemPasteboard().getData();
-    if (generation !== ClipboardAccess.generation) { return; }
+    if (generation !== ClipboardAccess.generation || !available()) { return; }
     if (data.getRecordCount() !== 1) {
       throw new Error('剪贴板为空，或不包含单条文本、单张图片');
     }
@@ -51,7 +52,7 @@ export class ClipboardAccess {
       text = data.getPrimaryText();
       if (!text) { throw new Error('剪贴板为空，或不包含支持的文本或单张图片'); }
     }
-    if (generation !== ClipboardAccess.generation) { return; }
+    if (generation !== ClipboardAccess.generation || !available()) { return; }
     await RemoteClipboard.upload(text, uri);
   }
 
@@ -60,6 +61,7 @@ export class ClipboardAccess {
       return;
     }
     const generation = ++ClipboardAccess.generation;
+    const available = RemoteClipboard.sessionAvailable();
     RemoteClipboard.incoming();
     AppStorage.setOrCreate('operationStatus', '正在读取系统分享…');
     try {
@@ -85,7 +87,7 @@ export class ClipboardAccess {
       } else {
         throw new Error(`暂不支持此分享类型：${record.utd}`);
       }
-      if (generation !== ClipboardAccess.generation) {
+      if (generation !== ClipboardAccess.generation || !available()) {
         return;
       }
       try {
@@ -114,9 +116,10 @@ export class ClipboardAccess {
     return fileUri.getUriFromPath(path);
   }
 
-  static async copy(text: string, uri: string): Promise<void> {
+  static async copy(text: string, uri: string, available: () => boolean): Promise<void> {
     try {
       if (!uri) {
+        if (!available()) { throw new Error('内容已清空或配对状态已改变'); }
         await pasteboard.getSystemPasteboard().setData(
           pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text));
         return;
@@ -127,6 +130,7 @@ export class ClipboardAccess {
         try {
           const pixels = await source.createPixelMap();
           try {
+            if (!available()) { throw new Error('内容已清空或配对状态已改变'); }
             await pasteboard.getSystemPasteboard().setData(
               pasteboard.createData(pasteboard.MIMETYPE_PIXELMAP, pixels));
           } finally {

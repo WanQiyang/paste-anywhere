@@ -16,9 +16,12 @@ if ((Get-Item $signed).LastWriteTimeUtc -lt (Get-Item $unsigned).LastWriteTimeUt
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $version = (Get-Content (Join-Path $root 'clients/harmony/AppScope/app.json5') -Raw | ConvertFrom-Json).app.versionName
-$destination = Join-Path $dist "PasteAnywhere-$version-harmony-$BuildMode-signed.hap"
-Copy-Item $signed $destination -Force
-$hash = (Get-FileHash $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-"$hash  $([IO.Path]::GetFileName($destination))" | Set-Content "$destination.sha256" -Encoding utf8NoBOM
-Write-Host "HarmonyOS package: $destination"
+foreach ($variant in @('signed', 'unsigned')) {
+    $source = Join-Path $output "entry-default-$variant.hap"
+    $destination = Join-Path $dist "PasteAnywhere-$version-harmony-$BuildMode-$variant.hap"
+    Copy-Item $source $destination -Force
+    $hash = (Get-FileHash $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $([IO.Path]::GetFileName($destination))" | Set-Content "$destination.sha256" -Encoding utf8NoBOM
+    Write-Host "HarmonyOS package: $destination"
+}
 Write-Host 'Install eligibility depends on the certificate/profile and authorized devices used to sign this HAP.'

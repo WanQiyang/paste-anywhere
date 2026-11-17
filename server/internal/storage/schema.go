@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Only empty databases and the current schema are supported.
 func initializeSchema(db *sql.DB) error {
@@ -52,8 +52,9 @@ func initializeSchema(db *sql.DB) error {
 		CREATE TABLE entry_files(entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE, blob_id TEXT NOT NULL REFERENCES blobs(id));
 		CREATE INDEX entry_files_blob ON entry_files(blob_id);
 		CREATE TABLE presence(device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE);
+		CREATE TABLE push_tokens(device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE, token TEXT NOT NULL UNIQUE);
 		CREATE TABLE server_status(id INTEGER PRIMARY KEY CHECK(id=1), updated_at INTEGER NOT NULL, retention_ms INTEGER NOT NULL);
-		PRAGMA user_version=2;`)
+		PRAGMA user_version=3;`)
 		if err != nil {
 			return err
 		}

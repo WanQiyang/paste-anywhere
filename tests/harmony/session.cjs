@@ -36,6 +36,7 @@ const { RemoteClipboard } = load('services/RemoteClipboard.ets', {
   } },
   '../networking/RemoteTypes': types,
   '../networking/ClientMetadata': { ClientMetadata: { version: () => 'test' } },
+  '../platform/HarmonyPush': { HarmonyPush: { token: async () => '' } },
   '../platform/ImageFiles': { ImageFiles: {
     prune: async () => {}, retain: uri => retained.add(uri), release: uri => retained.delete(uri),
     uploadBytes: uri => new Promise(resolve => pending.set(uri, resolve)),
@@ -68,7 +69,10 @@ const { RemoteClipboard } = load('services/RemoteClipboard.ets', {
   assert.equal(state.get('uploading'), false);
   assert.equal(retained.size, 0);
   const preview = RemoteClipboard.prepare({ id: '1', kind: 'image' });
+  const available = RemoteClipboard.entryAvailable({ id: '1' });
+  assert.equal(available(), true);
   await RemoteClipboard.logout();
+  assert.equal(available(), false, 'Previously prepared content cannot be used after logout');
   downloadResolve('/cache/image.png');
   await assert.rejects(() => preview, /配对状态已改变/);
   console.log('PASS: overlapping uploads, stale-result rejection, busy guards, failure cleanup and preview session invalidation.');

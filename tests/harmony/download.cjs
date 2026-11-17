@@ -13,7 +13,10 @@ const fileIo = {
   async listFile(directory) { return [...files.keys()].filter(file => file.startsWith(directory + '/')).map(file => path.basename(file)); },
   async unlink(path) { files.delete(path); },
   async open(path) { files.set(path, []); return { fd: path }; },
-  async write(fd, bytes) { const chunk = [...new Uint8Array(bytes)].slice(0, 2); files.get(fd).push(...chunk); return chunk.length; },
+  async write(fd, bytes) {
+    if (mode === 'write-failure' && files.get(fd).length > 0) throw Error('disk full');
+    const chunk = [...new Uint8Array(bytes)].slice(0, 2); files.get(fd).push(...chunk); return chunk.length;
+  },
   async close() {}
 };
 const http = {
@@ -74,6 +77,11 @@ const entry = id => ({ id, attachment: { size: 4, width: 1, height: 1, mime: 'im
   mode = 'ok';
   await ImageFiles.download(settings, entry('10'), '/cache');
   assert.equal(requests, 9);
+  const fileCount = files.size;
+  mode = 'write-failure';
+  await assert.rejects(() => ImageFiles.download(settings, entry('99'), '/cache'));
+  assert.equal(files.size, fileCount, 'Failed cache writes must remove partial files');
+  mode = 'ok';
   const old = await ImageFiles.download(settings, entry('20'), '/cache');
   modified.set(old, Date.now() / 1000 - 8 * 86400);
   ImageFiles.retain(old);

@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
+    & "$PSScriptRoot/check-public.ps1"
     $versions = @(
         (Get-Content VERSION -Raw).Trim()
         (Get-Content clients/harmony/AppScope/app.json5 -Raw | ConvertFrom-Json).app.versionName

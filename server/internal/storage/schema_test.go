@@ -12,7 +12,8 @@ func TestRejectUnsupportedDatabases(t *testing.T) {
 	for _, setup := range []string{
 		"CREATE TABLE users(id INTEGER PRIMARY KEY,name TEXT)",
 		"PRAGMA user_version=1",
-		"PRAGMA user_version=3",
+		"PRAGMA user_version=2",
+		"PRAGMA user_version=4",
 	} {
 		t.Run(setup, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "unsupported.db")

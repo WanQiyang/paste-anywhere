@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"paste-anywhere/server/internal/httpapi"
+	"paste-anywhere/server/internal/push"
 	"paste-anywhere/server/internal/storage"
 )
 
@@ -31,6 +32,15 @@ func serve(s *storage.Store, listen string, maxText int, maxImage int) error {
 	defer stop()
 	api := httpapi.New(s, maxText, maxImage)
 	api.TrustProxy = os.Getenv("TRUST_PROXY") == "true"
+	if path := os.Getenv("HUAWEI_PUSH_KEY_FILE"); path != "" {
+		sender, err := push.Load(path)
+		if err != nil {
+			return err
+		}
+		stopPush := api.StartPush(ctx, sender)
+		defer stopPush()
+		log.Print("HarmonyOS Push Kit enabled")
+	}
 	if err := api.SavePresence(); err != nil {
 		return err
 	}

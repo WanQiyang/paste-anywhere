@@ -42,6 +42,7 @@ type API struct {
 	imageWork  chan struct{}
 	mu         sync.Mutex // serializes commits, publish, and subscription start; no offline replay
 	subs       map[*subscription]bool
+	pushQueue  chan pushJob
 }
 
 func New(store *storage.Store, maxText int, maxImage int) *API {
@@ -51,6 +52,7 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("POST /v1/devices", a.createDevice)
+	mux.HandleFunc("PUT /v1/push-token", a.auth(a.setPushToken))
 	mux.HandleFunc("DELETE /v1/devices/{name}", a.auth(a.deleteDevice))
 	mux.HandleFunc("GET /v1/users", a.auth(a.users))
 	mux.HandleFunc("POST /v1/entries", a.auth(a.upload))
@@ -318,6 +320,7 @@ func (a *API) create(w http.ResponseWriter, d storage.Device, commit func() (sto
 	e, err := commit()
 	if err == nil {
 		a.publish(e.UserID, d.ID, Event{"clipboard.updated", e.ID, d.ID})
+		a.queuePush(e)
 	}
 	a.mu.Unlock()
 	if err != nil {

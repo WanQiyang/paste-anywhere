@@ -10,7 +10,11 @@
         "strictMode": { "caseSensitiveCheck": true, "useNormalizedOHMUrl": true }
       }
     }],
-    "buildModeSet": [{ "name": "debug" }, { "name": "release" }]
+    "buildModeSet": [{ "name": "debug" }, { "name": "release" }],
+    "capabilities": [{
+      "bundleName": "com.ribo.pasteanywhere",
+      "config": [{ "name": "Push Kit", "capability": "com.huawei.service.push.base_service" }]
+    }]
   },
   "modules": [{
     "name": "entry",

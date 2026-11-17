@@ -38,6 +38,7 @@ func TestNativeAndBrowserWebSocketOrigins(t *testing.T) {
 		name, origin, credential string
 		allowed                  bool
 	}{
+		{"native-no-origin-allowed", "", token, true},
 		{"invalid-bare-host", u.Hostname(), token, false},
 		{"invalid-bare-host-port", u.Host, token, false},
 		{"harmony-origin-missing-port", "http://" + u.Hostname(), token, false},
